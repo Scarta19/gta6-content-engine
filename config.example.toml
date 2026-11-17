@@ -1,0 +1,81 @@
+# Copy to config.toml and edit. Secrets never go here: use .env / environment variables.
+
+[paths]
+db = "data/gce.sqlite3"
+work_dir = "out"            # renders, audio, subtitles
+assets_dir = "assets"       # licensed/owned media you register with `gce asset add`
+
+[discovery]
+# RSS/Atom feeds. Discovery only collects headlines + links; verification decides what is usable.
+feeds = [
+  "https://news.google.com/rss/search?q=%22GTA+6%22+OR+%22GTA+VI%22+OR+%22Grand+Theft+Auto+VI%22&hl=en-US&gl=US&ceid=US:en",
+  "https://www.reddit.com/r/GTA6/.rss",
+  "https://feeds.feedburner.com/ign/games-all",
+]
+keywords = ["gta 6", "gta vi", "grand theft auto vi", "grand theft auto 6", "rockstar games", "leonida", "vice city"]
+max_age_days = 14
+
+[verification]
+# Tier 1 = primary/official. A story is CONFIRMED only with at least one tier-1 source.
+official_domains = ["rockstargames.com", "take2games.com", "x.com/RockstarGames", "twitter.com/RockstarGames"]
+# Tier 2 = established outlets. Two independent tier-2 outlets => CORROBORATED (still say "reported by").
+reputable_domains = [
+  "ign.com", "polygon.com", "kotaku.com", "theverge.com", "gamespot.com", "eurogamer.net",
+  "pcgamer.com", "videogameschronicle.com", "gamesindustry.biz", "bloomberg.com", "reuters.com",
+  "apnews.com", "cnbc.com", "wsj.com", "theguardian.com", "rollingstone.com",
+]
+# Anything else (reddit, aggregators, leakers) is UNVERIFIED and may only be used as labeled speculation.
+
+[llm]
+provider = "anthropic"
+model = "claude-sonnet-5-5"
+max_tokens = 2000
+# USD per million tokens, used for cost tracking. Check current pricing before relying on these.
+input_usd_per_mtok = 3.0
+output_usd_per_mtok = 15.0
+
+[tts]
+# "silent" = no voice (timing from word count, for previews/tests)
+# "piper"  = free local TTS (https://github.com/rhasspy/piper), set piper_model to a .onnx voice
+# "openai" = OpenAI TTS API (needs OPENAI_API_KEY), paid per character
+provider = "silent"
+words_per_minute = 165
+piper_model = ""
+openai_model = "gpt-4o-mini-tts"
+openai_voice = "onyx"
+openai_usd_per_1k_chars = 0.015
+
+[render]
+width = 1080
+height = 1920
+fps = 30
+font = "DejaVu Sans"
+font_size = 64
+max_words_per_caption = 4
+ai_label_text = "AI-GENERATED CONCEPT - NOT REAL GAMEPLAY"
+background_color = "0x101418"
+max_duration_s = 58.0      # Facebook Reels max is 60 s; keep a margin
+
+[higgsfield]
+# Off unless you opt in. Live calls also need HF_API_KEY_ID / HF_API_KEY_SECRET and --live.
+enabled = false
+base_url = "https://api.higgsfield.ai"
+# Model endpoint path from docs.higgsfield.ai (fields vary by model). Example: Wan 2.6 image-to-video.
+model_path = "/wan/v2.6/image-to-video"
+# Your measured USD cost per generation, for cost tracking. Fill in from your console after a test.
+est_usd_per_generation = 0.0
+poll_interval_s = 5
+poll_timeout_s = 900
+
+[zernio]
+base_url = "https://zernio.com/api/v1"
+timezone = "America/New_York"
+# Account ids from `gce zernio accounts` (needs ZERNIO_API_KEY). Leave empty until connected.
+[zernio.accounts]
+tiktok = ""
+instagram = ""
+facebook = ""
+
+[costs]
+# Fixed monthly subscriptions amortized per published video in reports.
+monthly_fixed_usd = 0.0

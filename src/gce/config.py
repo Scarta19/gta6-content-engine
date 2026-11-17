@@ -81,6 +81,18 @@ class ZernioCfg:
 
 
 @dataclass(frozen=True)
+class GatesCfg:
+    launch_date: str = "2026-11-19"
+    spoiler_terms: list[str] = field(
+        default_factory=lambda: ["ending", "final mission", "plot twist", "betrayal"]
+    )
+    min_duration_s: float = 30.0
+    max_duration_s: float = 58.0
+    allow_rockstar_assets: bool = False
+    min_hook_score: float = 0.0
+
+
+@dataclass(frozen=True)
 class CostsCfg:
     monthly_fixed_usd: float = 0.0
 
@@ -96,6 +108,7 @@ class Config:
     higgsfield: HiggsfieldCfg
     zernio: ZernioCfg
     costs: CostsCfg
+    gates: GatesCfg = field(default_factory=GatesCfg)
     source: Path | None = None
 
 
@@ -131,6 +144,7 @@ def from_dict(raw: dict[str, Any], source: Path | None = None) -> Config:
         higgsfield=HiggsfieldCfg(**_section(raw, "higgsfield")),
         zernio=ZernioCfg(**_section(raw, "zernio")),
         costs=CostsCfg(**_section(raw, "costs")),
+        gates=GatesCfg(**_section(raw, "gates")),
         source=source,
     )
 

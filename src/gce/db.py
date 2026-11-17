@@ -111,6 +111,13 @@ CREATE TABLE IF NOT EXISTS metrics (
     saves INTEGER NOT NULL DEFAULT 0,
     engagement_rate REAL NOT NULL DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS gate_runs (
+    id INTEGER PRIMARY KEY,
+    render_id INTEGER NOT NULL REFERENCES renders(id),
+    passed INTEGER NOT NULL,
+    result_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS costs (
     id INTEGER PRIMARY KEY,
     script_id INTEGER REFERENCES scripts(id),

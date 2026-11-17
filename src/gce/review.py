@@ -6,7 +6,7 @@ import json
 import sqlite3
 from typing import Any
 
-from gce import assets, db, scripting
+from gce import assets, db, gates, scripting
 
 CHECKLIST = (
     ("watched", "I watched the full video with sound, start to finish."),
@@ -55,6 +55,7 @@ def summary(conn: sqlite3.Connection, render_id: int) -> dict[str, Any]:
             for a in assets.for_script(conn, render["script_id"])
         ],
         "automated_check_problems": scripting.check(conn, render["script_id"]),
+        "quality_gates_passed": gates.latest_passed(conn, render_id),
         "cost_usd": round(float(cost), 4),
     }
 
@@ -72,7 +73,10 @@ def decide(
     missing = [k for k, _ in CHECKLIST if k not in answers]
     if missing:
         raise ValueError(f"checklist incomplete: {', '.join(missing)}")
-    approved = all(answers.values()) and not info["automated_check_problems"]
+    gates_ok = gates.latest_passed(conn, render_id)
+    approved = all(answers.values()) and not info["automated_check_problems"] and gates_ok
+    if not gates_ok:
+        notes = (notes + " [blocked: quality gates not passed]").strip()
     decision = "approved" if approved else "rejected"
     conn.execute(
         "INSERT INTO reviews (render_id, decision, reviewer, checklist_json, notes, created_at)"

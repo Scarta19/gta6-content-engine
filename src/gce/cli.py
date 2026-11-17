@@ -8,7 +8,18 @@ from typing import Annotated, Any
 
 import typer
 
-from gce import analytics, assets, discovery, higgsfield, publish, render, review, scripting, verify
+from gce import (
+    analytics,
+    assets,
+    discovery,
+    gates,
+    higgsfield,
+    publish,
+    render,
+    review,
+    scripting,
+    verify,
+)
 from gce import config as config_mod
 from gce import db as db_mod
 from gce import zernio as zernio_mod
@@ -248,14 +259,48 @@ def render_cmd(
     )
 
 
+@app.command("gates")
+def gates_cmd(
+    render_id: int,
+    llm: Annotated[
+        bool, typer.Option(help="Also score the hook with the LLM (+2 alternatives)")
+    ] = False,
+) -> None:
+    """Run the facts, rights/safety and virality gates. Exit code 1 if any fails."""
+    c = cfg()
+    with db_mod.session(c.paths.db) as conn:
+        report = gates.run(conn, c, render_id, use_llm=llm)
+    _print_gates(report)
+    if not report.passed:
+        raise typer.Exit(1)
+
+
+def _print_gates(report: gates.GateReport) -> None:
+    for g in report.gates:
+        typer.secho(
+            f"[{'PASS' if g.passed else 'FAIL'}] {g.name}", fg="green" if g.passed else "red"
+        )
+        for issue in g.issues:
+            typer.echo(f"    - {issue}")
+        for k, v in g.info.items():
+            typer.echo(f"    {k}: {json.dumps(v)}")
+
+
 @app.command("review")
 def review_cmd(
     render_id: int,
     reviewer: Annotated[str, typer.Option(prompt="Reviewer name")],
     notes: str = "",
+    llm: Annotated[bool, typer.Option(help="LLM hook scoring in the gates")] = False,
 ) -> None:
-    """Interactive human approval checklist."""
-    with db_mod.session(cfg().paths.db) as conn:
+    """Run quality gates, then the interactive human approval checklist."""
+    c = cfg()
+    with db_mod.session(c.paths.db) as conn:
+        report = gates.run(conn, c, render_id, use_llm=llm)
+        _print_gates(report)
+        if not report.passed:
+            typer.secho("quality gates failed: fix the script/assets and re-render", fg="red")
+            raise typer.Exit(1)
         echo_json(review.summary(conn, render_id))
         answers = {key: typer.confirm(text, default=False) for key, text in review.CHECKLIST}
         decision = review.decide(conn, render_id, reviewer, answers, notes)

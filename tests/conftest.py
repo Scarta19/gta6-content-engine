@@ -41,7 +41,8 @@ NEWS_SCRIPT = {
         "Here is what it actually shows, and what it does not. The trailer focuses on Jason and "
         "Lucia in Leonida, with new looks at the city and the coast. Rockstar did not announce "
         "a new release date in the post, so anyone claiming otherwise is guessing. We will "
-        "break down every frame in our next video, so stay close."
+        "break down every frame in our next video, including the details most people "
+        "scrolled right past, so stay close and keep your eyes on the background."
     ),
     "cta": "Follow so you do not miss the frame-by-frame breakdown.",
     "caption": "New official GTA VI trailer: what it shows and what it does not.",

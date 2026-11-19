@@ -24,12 +24,21 @@ from gce.llm import complete
 KID_DIRECTED = re.compile(
     r"\b(kids?|children|child|little ones|boys and girls|ask your (mom|dad|parents)|"
     r"after school|homework|elementary|middle school|grade school|tweens?|under 13|"
-    r"for ages? \d{1,2}\b)",
+    r"for ages? \d{1,2}|"
+    r"niñ[oa]s|para niños|infantil|pídele a tus (papás|padres)|tarea escolar|primaria|"
+    r"crianças|para crianças|peça (aos|pros) seus pais|dever de casa|"
+    r"enfants|pour les enfants|demande à tes parents|devoirs)\b",
     re.I,
 )
 SPOILER_WARNING = re.compile(r"\bspoiler", re.I)
 ROCKSTAR_MARKERS = re.compile(r"rockstar|take[- ]?two|gta[ _-]?(vi|6)[ _-]?(trailer|logo)", re.I)
-CTA_VERBS = re.compile(r"\b(follow|comment|share|save|subscribe|tag|tell us|drop|like)\b", re.I)
+CTA_VERBS = re.compile(
+    r"\b(follow|comment|share|save|subscribe|tag|tell us|drop|like|"
+    r"s[ií]gue\w*|coment[ae]\w*|compart[ei]\w*|guard[ae]\w*|suscr[ií]be\w*|"
+    r"siga\w*|salv[ae]\w*|inscrev[ae]\w*|"
+    r"abonne\w*|commente\w*|partage\w*|enregistre\w*)\b",
+    re.I,
+)
 
 HOOK_POWER = {
     "nobody": 1.0,
@@ -113,6 +122,16 @@ def rights_safety_gate(
                 f"asset {a['id']} looks Rockstar-owned ({a['source']}); "
                 "use owned/AI visuals or enable allow_rockstar_assets after legal review"
             )
+    for insp in conn.execute(
+        "SELECT url, creator FROM inspirations WHERE script_id = ?", (script_id,)
+    ):
+        for a in used:
+            hay = f"{a['source']} {a['provenance_url']}".lower()
+            if insp["url"].lower() in hay or (insp["creator"] and insp["creator"].lower() in hay):
+                issues.append(
+                    f"asset {a['id']} comes from an inspiration source "
+                    f"({insp['creator'] or insp['url']}); inspiration is ideas only"
+                )
     has_ai = script.ai_generated or any(a["ai_generated"] for a in used)
     if has_ai and not (scripting.AI_DISCLOSURE_RE.search(script.caption)):
         issues.append("AI visuals present but caption has no AI disclosure")

@@ -8,6 +8,11 @@
                publishNow | scheduledFor + timezone, tiktokSettings{...}}
   TikTok requires tiktokSettings.content_preview_confirmed and express_consent_given = true,
   and privacy_level must be one the creator allows.
+- Per-platform options go in platforms[].platformSpecificData (verified 2026-11-19):
+  youtube:   title (<=100), visibility, madeForKids, containsSyntheticMedia, categoryId
+             ("20" Gaming); tags are top-level. Vertical video <=3 min is a Short.
+  facebook:  contentType "reel" (9:16, 3-60 s; 30 API Reels per Page per 24 h)
+  instagram: a single video always publishes as a Reel; shareToFeed (default true)
 - GET  /posts/{id}                    -> post.status: scheduled | publishing | published
 - GET  /analytics?postId=...          -> analytics{impressions, reach, likes, comments, shares,
                                          saves, clicks, views, engagementRate}
@@ -89,15 +94,31 @@ def build_post_body(
     timezone: str,
     scheduled_for: str | None,
     tiktok_privacy: str,
+    title: str = "",
+    tags: list[str] | None = None,
+    ai_generated: bool = False,
 ) -> dict[str, Any]:
     missing = [p for p in platforms if not accounts.get(p)]
     if missing:
         raise ZernioError(f"no Zernio accountId configured for: {', '.join(missing)}")
     body: dict[str, Any] = {
         "content": caption,
-        "platforms": [{"platform": p, "accountId": accounts[p]} for p in platforms],
+        "platforms": [
+            {
+                "platform": p,
+                "accountId": accounts[p],
+                **(
+                    {"platformSpecificData": psd}
+                    if (psd := _platform_data(p, title, ai_generated))
+                    else {}
+                ),
+            }
+            for p in platforms
+        ],
         "mediaItems": [{"url": media_url, "type": "video"}],
     }
+    if tags and "youtube" in platforms:
+        body["tags"] = _youtube_tags(tags)
     if scheduled_for:
         body["scheduledFor"] = scheduled_for
         body["timezone"] = timezone
@@ -113,6 +134,34 @@ def build_post_body(
             "express_consent_given": True,
         }
     return body
+
+
+def _platform_data(platform: str, title: str, ai_generated: bool) -> dict[str, Any]:
+    if platform == "youtube":
+        return {
+            "title": (title or "Untitled")[:100],
+            "visibility": "public",
+            "madeForKids": False,  # M-rated game, adult audience; never kid-directed
+            "containsSyntheticMedia": ai_generated,
+            "categoryId": "20",  # Gaming
+        }
+    if platform == "facebook":
+        return {"contentType": "reel", **({"title": title[:255]} if title else {})}
+    if platform == "instagram":
+        return {"shareToFeed": True}
+    return {}
+
+
+def _youtube_tags(tags: list[str]) -> list[str]:
+    out: list[str] = []
+    total = 0
+    for t in tags:
+        t = t.lstrip("#")[:100]
+        if total + len(t) > 500:
+            break
+        out.append(t)
+        total += len(t)
+    return out
 
 
 def extract_metrics(payload: dict[str, Any]) -> dict[str, Any] | None:

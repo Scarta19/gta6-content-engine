@@ -48,6 +48,12 @@ class TtsCfg:
     openai_model: str = "gpt-4o-mini-tts"
     openai_voice: str = "onyx"
     openai_usd_per_1k_chars: float = 0.015
+    # macOS `say` voices per language (free, local). Check installed voices: say -v '?'
+    say_voices: dict[str, str] = field(
+        default_factory=lambda: {"en": "Samantha", "es": "Paulina", "pt": "Luciana", "fr": "Thomas"}
+    )
+    # piper .onnx model per language; falls back to piper_model
+    piper_models: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

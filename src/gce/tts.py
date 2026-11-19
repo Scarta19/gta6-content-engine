@@ -16,7 +16,7 @@ def estimated_seconds(text: str, words_per_minute: int) -> float:
     return max(3.0, len(text.split()) / words_per_minute * 60)
 
 
-def synthesize(text: str, out: Path, cfg: TtsCfg) -> tuple[Path, float]:
+def synthesize(text: str, out: Path, cfg: TtsCfg, language: str = "en") -> tuple[Path, float]:
     out.parent.mkdir(parents=True, exist_ok=True)
     if cfg.provider == "silent":
         target = out.with_suffix(".wav")
@@ -25,13 +25,31 @@ def synthesize(text: str, out: Path, cfg: TtsCfg) -> tuple[Path, float]:
             ["-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo", "-t", f"{secs:.2f}", str(target)]
         )
         return target, 0.0
+    if cfg.provider == "say":
+        binary = shutil.which("say")
+        if not binary:
+            raise RuntimeError("`say` provider needs macOS")
+        voice = cfg.say_voices.get(language, cfg.say_voices.get("en", "Samantha"))
+        aiff = out.with_suffix(".aiff")
+        proc = subprocess.run(
+            [binary, "-v", voice, "-o", str(aiff), text],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if proc.returncode != 0:
+            raise RuntimeError(f"say failed (voice {voice!r} installed?): {proc.stderr.strip()}")
+        target = out.with_suffix(".wav")
+        media.run(["-i", str(aiff), "-ar", "48000", "-ac", "2", str(target)])
+        return target, 0.0
     if cfg.provider == "piper":
         binary = shutil.which("piper")
-        if not binary or not cfg.piper_model:
+        model = cfg.piper_models.get(language, cfg.piper_model)
+        if not binary or not model:
             raise RuntimeError("piper provider needs the `piper` binary and tts.piper_model set")
         target = out.with_suffix(".wav")
         proc = subprocess.run(
-            [binary, "--model", cfg.piper_model, "--output_file", str(target)],
+            [binary, "--model", model, "--output_file", str(target)],
             input=text,
             capture_output=True,
             text=True,

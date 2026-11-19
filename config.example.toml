@@ -91,6 +91,13 @@ allow_rockstar_assets = false
 # Hook score below this blocks approval (0-10). 0 = advisory only.
 min_hook_score = 0.0
 
+[trends]
+# Viral channels to learn from (YouTube handles). Metadata only: titles, views, timing.
+# We never download or reuse their video, audio or text. Needs YOUTUBE_API_KEY.
+channels = ["@CtrlAltPlay-1", "@GtaVictorV", "@DescubrimientoGTA"]
+videos_per_channel = 20
+lookback_days = 14
+
 [costs]
 # Fixed monthly subscriptions amortized per published video in reports.
 monthly_fixed_usd = 0.0

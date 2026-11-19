@@ -99,6 +99,13 @@ class GatesCfg:
 
 
 @dataclass(frozen=True)
+class TrendsCfg:
+    channels: list[str] = field(default_factory=list)
+    videos_per_channel: int = 20
+    lookback_days: int = 14
+
+
+@dataclass(frozen=True)
 class CostsCfg:
     monthly_fixed_usd: float = 0.0
 
@@ -115,6 +122,7 @@ class Config:
     zernio: ZernioCfg
     costs: CostsCfg
     gates: GatesCfg = field(default_factory=GatesCfg)
+    trends: TrendsCfg = field(default_factory=TrendsCfg)
     source: Path | None = None
 
 
@@ -151,6 +159,7 @@ def from_dict(raw: dict[str, Any], source: Path | None = None) -> Config:
         zernio=ZernioCfg(**_section(raw, "zernio")),
         costs=CostsCfg(**_section(raw, "costs")),
         gates=GatesCfg(**_section(raw, "gates")),
+        trends=TrendsCfg(**_section(raw, "trends")),
         source=source,
     )
 

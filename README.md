@@ -93,6 +93,20 @@ uv run gce asset attach 1 1 && uv run gce render 1
 | Quality gates must pass before a human can approve (see below) | `gates.run`, `review.decide` |
 | Higgsfield is dry-run unless `higgsfield.enabled = true` and `--live` | `higgsfield.Client` |
 
+### Learning from viral channels (`gce trends`)
+
+```bash
+uv run gce trends pull       # recent uploads + stats of [trends].channels (YouTube Data API)
+uv run gce trends top        # Shorts ranked by outlier score (views/hour vs. channel median)
+uv run gce trends signals    # which hook formats and topics over-perform
+uv run gce script new curiosity --lang es --from-trend <video id> --source https://...
+```
+
+Only public metadata is read (title, publish time, views, likes, comments, duration), at
+1 quota unit per call. `--from-trend` passes the format and topic as a signal, tells the
+model never to reuse wording, footage or unconfirmed claims, and logs the source video as an
+inspiration. Needs `YOUTUBE_API_KEY` (Google Cloud console, enable YouTube Data API v3).
+
 ### Inspiration vs. copying
 
 Third-party videos can inspire topics, formats and pacing. Log them with

@@ -20,6 +20,18 @@ def require(binary: str = "ffmpeg") -> str:
     return path
 
 
+def require_libass() -> None:
+    """Captions need FFmpeg built with libass (Homebrew: `brew install ffmpeg-full`)."""
+    proc = subprocess.run(
+        [require("ffmpeg"), "-hide_banner", "-filters"], capture_output=True, text=True, check=False
+    )
+    if not any(line.split()[1:2] == ["ass"] for line in proc.stdout.splitlines()):
+        raise FfmpegError(
+            "this FFmpeg has no libass (needed for captions). On macOS: "
+            "`brew install ffmpeg-full` and put /opt/homebrew/opt/ffmpeg-full/bin first on PATH."
+        )
+
+
 def run(args: list[str], cwd: Path | None = None) -> None:
     cmd = [require("ffmpeg"), "-hide_banner", "-loglevel", "error", "-y", *args]
     proc = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, check=False)

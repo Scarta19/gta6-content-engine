@@ -51,7 +51,7 @@ Hard rules:
 
 Return ONLY a JSON object with keys:
 title, hook, voiceover, on_screen (array of short text beats), cta, caption,
-hashtags (array, max 5), visual_plan, claims (array of {claim, source_url, status}),
+hashtags (array, max 5), visual_plan, claims (array of {claim, source_id, status}),
 rights_notes."""
 
 FORMAT_BRIEFS = {
@@ -134,6 +134,15 @@ def extract_json(text: str) -> dict[str, Any]:
     return data
 
 
+def resolve_source_ids(data: dict[str, Any], id_to_url: dict[str, str]) -> dict[str, Any]:
+    """Replace claims[].source_id (S1, S2...) with the real URL. Unknown ids stay visible."""
+    for claim in data.get("claims", []):
+        if isinstance(claim, dict) and "source_id" in claim and not claim.get("source_url"):
+            sid = str(claim.pop("source_id")).strip().strip("[]")
+            claim["source_url"] = id_to_url.get(sid, f"unknown-source:{sid}")
+    return data
+
+
 def validate(script: Script, story_status: str | None, source_urls: set[str]) -> list[str]:
     """Return a list of problems. Empty list means the script passes automated checks."""
     problems: list[str] = []
@@ -183,9 +192,9 @@ def build_prompt(
         lines += [f"- {i}" for i in inspirations]
     if story is not None:
         lines += [f"Story: {story['title']}", f"Verification status: {story['status'].upper()}"]
-    lines.append("Sources (tier, url, headline):")
-    for s in sources:
-        lines.append(f"- [{s['tier']}] {s['url']} :: {s['title']}")
+    lines.append("Sources (cite by id in claims[].source_id, never paste URLs):")
+    for i, s in enumerate(sources, 1):
+        lines.append(f"- S{i} [{s['tier']}] {s['domain']} :: {s['title']}")
     if not sources:
         lines.append("- none (concept only: do not make factual claims)")
     return "\n".join(lines)
@@ -209,10 +218,15 @@ def generate(
             raise ValueError(f"story {story_id} not found")
         sources = verify.sources_for(conn, story_id)
     prompt = build_prompt(fmt, story, sources, language, topic)
+    id_to_url = {f"S{i}": str(s["url"]) for i, s in enumerate(sources, 1)}
     if extra_sources:
-        prompt += "\nAdditional citable sources:\n" + "\n".join(f"- {u}" for u in extra_sources)
+        prompt += "\nAdditional citable sources:\n"
+        for j, url in enumerate(extra_sources, len(sources) + 1):
+            id_to_url[f"S{j}"] = url
+            prompt += f"- S{j} {url}\n"
     result = complete(cfg, SYSTEM_PROMPT, prompt)
-    script = Script.from_dict(extract_json(result.text), fmt, story_id, language)
+    data = resolve_source_ids(extract_json(result.text), id_to_url)
+    script = Script.from_dict(data, fmt, story_id, language)
     script_id = save(conn, script, model=cfg.model)
     db.record_cost(
         conn,

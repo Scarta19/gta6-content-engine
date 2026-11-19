@@ -94,6 +94,7 @@ def render(
             "script fails checks (use --force to render a draft anyway):\n- "
             + "\n- ".join(problems)
         )
+    media.require_libass()
     script = scripting.load(conn, script_id)
     visuals = [a for a in assets.for_script(conn, script_id) if a["kind"] in ("image", "video")]
     work = cfg.paths.work_dir / f"script_{script_id}"

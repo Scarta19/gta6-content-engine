@@ -43,7 +43,9 @@ class LlmCfg:
 @dataclass(frozen=True)
 class TtsCfg:
     provider: str = "silent"
-    words_per_minute: int = 165
+    words_per_minute: int = 190
+    say_rate: int = 215  # macOS `say` words per minute (default voice speed is ~175)
+    openai_speed: float = 1.15
     piper_model: str = ""
     openai_model: str = "gpt-4o-mini-tts"
     openai_voice: str = "onyx"
@@ -65,6 +67,7 @@ class RenderCfg:
     font_size: int = 76
     max_words_per_caption: int = 4
     ai_label_text: str = "AI-GENERATED VISUALS - NOT REAL GAMEPLAY"
+    scene_seconds: float = 2.5  # target shot length; viral Shorts cut every 2-3 s
     watermark: str = "@secretmapclub"  # brand handle shown small on every video; "" to hide
     background_color: str = "0x101418"
     max_duration_s: float = 58.0  # Facebook Reels cap is 60 s

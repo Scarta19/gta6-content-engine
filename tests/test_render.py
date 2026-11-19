@@ -65,3 +65,12 @@ def test_unlicensed_asset_rejected(conn: sqlite3.Connection, tmp_path: Path) -> 
         assets.add(conn, f, "found_on_youtube", source="someone")
     with pytest.raises(ValueError, match="provenance"):
         assets.add(conn, f, "permitted", source="creator")
+
+
+def test_plan_cuts_fast_and_varied() -> None:
+    v = [{"id": 1}, {"id": 2}, {"id": 3}]
+    slots, seg, offs = render.plan_cuts(v, 30.0, 2.5)  # type: ignore[arg-type]
+    assert len(slots) == 12 and abs(seg - 2.5) < 1e-9
+    assert [s["id"] for s in slots[:4]] == [1, 2, 3, 1]  # type: ignore[index]
+    assert offs[0] == 0 and offs[3] == 2.5  # second use of a clip starts later
+    assert render.plan_cuts([], 10.0, 2.5) == ([None], 10.0, [0.0])

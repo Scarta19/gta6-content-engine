@@ -26,7 +26,9 @@ def _cover_filter(w: int, h: int, fps: int) -> str:
     )
 
 
-def _segment(asset: sqlite3.Row | None, seconds: float, out: Path, cfg: Config) -> Path:
+def _segment(
+    asset: sqlite3.Row | None, seconds: float, out: Path, cfg: Config, offset: float = 0.0
+) -> Path:
     r = cfg.render
     w, h, fps = r.width, r.height, r.fps
     common = ["-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-r", str(fps)]
@@ -68,10 +70,14 @@ def _segment(asset: sqlite3.Row | None, seconds: float, out: Path, cfg: Config) 
             ]
         )
     elif asset["kind"] == "video":
+        clip_len = media.duration(Path(asset["path"]))
+        offset = offset % clip_len if clip_len > seconds else 0.0
         media.run(
             [
                 "-stream_loop",
                 "-1",
+                "-ss",
+                f"{offset:.3f}",
                 "-i",
                 asset["path"],
                 "-vf",
@@ -85,6 +91,20 @@ def _segment(asset: sqlite3.Row | None, seconds: float, out: Path, cfg: Config) 
     else:
         raise ValueError(f"asset {asset['id']} of kind {asset['kind']} cannot be a visual")
     return out
+
+
+def plan_cuts(
+    visuals: list[sqlite3.Row], total: float, scene_seconds: float
+) -> tuple[list[sqlite3.Row | None], float, list[float]]:
+    """Fast-cut plan: ~scene_seconds per shot, cycling visuals, each reuse starting later
+    in the clip so repeated sources show different moments."""
+    if not visuals:
+        return [None], total, [0.0]
+    n = max(len(visuals), round(total / max(scene_seconds, 0.5)))
+    seg_len = total / n
+    slots: list[sqlite3.Row | None] = [visuals[i % len(visuals)] for i in range(n)]
+    offsets = [(i // len(visuals)) * seg_len for i in range(n)]
+    return slots, seg_len, offsets
 
 
 def render(
@@ -118,9 +138,11 @@ def render(
         cues, work / "captions.ass", cfg.render, script.hook, script.on_screen, total, ai_label
     )
 
-    slots: list[sqlite3.Row | None] = list(visuals) or [None]
-    seg_len = total / len(slots)
-    seg_paths = [_segment(a, seg_len, work / f"seg_{i:02}.mp4", cfg) for i, a in enumerate(slots)]
+    slots, seg_len, offsets = plan_cuts(list(visuals), total, cfg.render.scene_seconds)
+    seg_paths = [
+        _segment(a, seg_len, work / f"seg_{i:02}.mp4", cfg, off)
+        for i, (a, off) in enumerate(zip(slots, offsets, strict=True))
+    ]
     concat_list = work / "segments.txt"
     concat_list.write_text("".join(f"file '{p.name}'\n" for p in seg_paths), encoding="utf-8")
     media.run(

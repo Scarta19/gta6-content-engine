@@ -32,7 +32,7 @@ def synthesize(text: str, out: Path, cfg: TtsCfg, language: str = "en") -> tuple
         voice = cfg.say_voices.get(language, cfg.say_voices.get("en", "Samantha"))
         aiff = out.with_suffix(".aiff")
         proc = subprocess.run(
-            [binary, "-v", voice, "-o", str(aiff), text],
+            [binary, "-v", voice, "-r", str(cfg.say_rate), "-o", str(aiff), text],
             capture_output=True,
             text=True,
             check=False,
@@ -71,6 +71,7 @@ def synthesize(text: str, out: Path, cfg: TtsCfg, language: str = "en") -> tuple
                 "voice": cfg.openai_voice,
                 "input": text,
                 "response_format": "mp3",
+                "speed": cfg.openai_speed,
             },
             timeout=120,
         )

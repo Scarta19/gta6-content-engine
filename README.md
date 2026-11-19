@@ -1,11 +1,12 @@
 # gta6-content-engine
 
 Lean, CLI-driven pipeline for verified, rights-reviewed GTA VI short-form videos
-(TikTok, Instagram Reels, Facebook Reels), US audience, American English.
+(TikTok, Instagram Reels, Facebook Reels, YouTube Shorts). Faceless channels, adult
+audience (GTA VI is rated M 17+). Scripts in English, Spanish, Portuguese or French.
 
 ```
 discover -> verify -> script -> assets -> render (FFmpeg + voice + captions)
-         -> human review -> publish (Zernio, dry-run default) -> metrics -> cost report
+         -> quality gates -> human review -> publish (Zernio, dry-run default) -> metrics -> cost report
 ```
 
 One SQLite file holds everything: sources and their tiers, stories, scripts, asset
@@ -46,6 +47,10 @@ uv run gce script new news --story 12
 uv run gce script import my_script.json --format analysis --story 12
 uv run gce script check 1
 
+# Niche formats: curiosity | guide | mystery (plus news | analysis | concept), any language
+uv run gce script new guide --lang es --topic "fastest car location" --source https://...
+uv run gce script inspire 1 https://youtube.com/... --creator "SomeChannel" --note "list pacing"
+
 # Visuals: every asset needs a license and a source
 uv run gce asset add shots/still.png --license owned --source "our capture"
 uv run gce asset add kit/screen1.jpg --license press_kit --source "Rockstar press site" \
@@ -53,7 +58,8 @@ uv run gce asset add kit/screen1.jpg --license press_kit --source "Rockstar pres
 uv run gce asset attach 1 1 2             # script 1 uses assets 1, 2 in order
 
 uv run gce render 1                       # out/script_1/gce_1.mp4 (1080x1920, <=58s)
-uv run gce review 1 --reviewer Santiago   # interactive checklist; approval is required
+uv run gce gates 1 [--llm]                # facts, rights/safety, virality; exit 1 on failure
+uv run gce review 1 --reviewer Santiago   # runs the gates, then the human checklist
 uv run gce export 1                       # manual-upload folder: video, caption, srt, review.json
 
 uv run gce publish 1                      # DRY RUN: prints the exact Zernio request, sends nothing
@@ -83,7 +89,26 @@ uv run gce asset attach 1 1 && uv run gce render 1
 | Render refuses scripts that fail checks and videos over 58 s (Facebook Reels max 60 s) | `render.render` |
 | Live publish needs an approved human review, `--live`, and `GCE_ALLOW_LIVE_PUBLISH=yes` | `publish.publish` |
 | AI concept videos also need `--ai-disclosure-confirmed` before live publish | `publish.publish` |
+| Quality gates must pass before a human can approve (see below) | `gates.run`, `review.decide` |
 | Higgsfield is dry-run unless `higgsfield.enabled = true` and `--live` | `higgsfield.Client` |
+
+### Inspiration vs. copying
+
+Third-party videos can inspire topics, formats and pacing. Log them with
+`gce script inspire`; they show in the review sheet. Their footage, audio and wording are
+never used: the rights gate blocks any asset whose source matches a logged inspiration.
+
+### Quality gates (`gce gates`)
+
+1. **Facts**: every claim cites a URL from the story's sources and keeps its status.
+2. **Rights and safety**: licensed assets only; nothing that looks Rockstar-owned unless
+   `allow_rockstar_assets = true` after legal review; AI visuals disclosed in the caption;
+   after `launch_date`, spoiler terms need a "spoiler" warning in the hook or caption;
+   kid-directed wording is always blocked (GTA VI is rated M 17+, the audience is adults).
+3. **Virality pre-check**: hook of 12 words or fewer on screen at 0.0 s, 30 to 58 s,
+   burned-in captions, one clear CTA, and a hook score (heuristic by default; `--llm` asks
+   the model for a 0-10 score plus two alternative hooks, with cost tracked).
+   Set `min_hook_score` to make the score blocking once we have performance data.
 
 Verification tiers live in `config.toml` (`official_domains`, `reputable_domains`).
 Unverified material (Reddit, leakers, aggregators) is never presented as news.
@@ -101,6 +126,12 @@ Not verified yet: the TikTok AI-content label field and Creator Inbox draft fiel
 concept posts need manual label confirmation. Run `gce zernio-accounts` once keys exist, then
 put the account ids in `config.toml`.
 
+Per-platform options (`platforms[].platformSpecificData`, checked 2026-11-19): YouTube gets
+`title`, `visibility`, `madeForKids: false`, `containsSyntheticMedia` (true for AI videos)
+and `categoryId: "20"` (Gaming), with tags at the top level; a vertical video of 3 minutes
+or less is a Short. Facebook gets `contentType: "reel"` (9:16, 3 to 60 s, 30 API Reels per
+Page per day). Instagram publishes a single video as a Reel.
+
 **Higgsfield** (`src/gce/higgsfield.py`): base `https://api.higgsfield.ai`,
 `Authorization: Key {id}:{secret}`, submit to the model path (default
 `/wan/v2.6/image-to-video`: `prompt`, `image_url`, `duration` 5/10/15, `resolution`),
@@ -113,7 +144,8 @@ Set `est_usd_per_generation` from your console after the first paid test.
 per-token prices are in config and every call is written to the `costs` table.
 Importing hand-written scripts costs nothing.
 
-**Voice** (`src/gce/tts.py`): `silent` (previews/tests), `piper` (free, local), or
+**Voice** (`src/gce/tts.py`): `silent` (previews/tests), `say` (macOS voices, free,
+per language), `piper` (free, local), or
 `openai` (paid per character). Captions are timed from the script text, so no speech
 recognition is needed.
 

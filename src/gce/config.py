@@ -64,7 +64,8 @@ class RenderCfg:
     font: str = "DejaVu Sans"
     font_size: int = 76
     max_words_per_caption: int = 4
-    ai_label_text: str = "AI-GENERATED CONCEPT - NOT REAL GAMEPLAY"
+    ai_label_text: str = "AI-GENERATED VISUALS - NOT REAL GAMEPLAY"
+    watermark: str = "@secretmapclub"  # brand handle shown small on every video; "" to hide
     background_color: str = "0x101418"
     max_duration_s: float = 58.0  # Facebook Reels cap is 60 s
 

@@ -25,3 +25,11 @@ def test_ass_includes_ai_label(tmp_path: Path, cfg: config.Config) -> None:
     assert "Hook (x)" in text  # braces escaped
     srt = subtitles.write_srt(cues, tmp_path / "c.srt").read_text()
     assert "00:00:00,000 --> " in srt
+
+
+def test_brand_watermark(tmp_path: Path, cfg: config.Config) -> None:
+    cues = subtitles.time_cues("hello world", 3.0, 4)
+    text = subtitles.write_ass(
+        cues, tmp_path / "w.ass", cfg.render, "h", [], 3.0, False
+    ).read_text()
+    assert "Brand,,0,0,0,,@secretmapclub" in text

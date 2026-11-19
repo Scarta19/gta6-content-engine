@@ -70,6 +70,7 @@ def report(conn: sqlite3.Connection, cfg: Config) -> list[dict[str, Any]]:
             (r["render_id"],),
         ).fetchone()[0]
         total_usd = float(r["var_usd"]) + (fixed_share if live else 0.0)
+        by_platform = {x["platform"]: x["views"] for x in latest}
         out.append(
             {
                 "render": r["render_id"],
@@ -77,7 +78,10 @@ def report(conn: sqlite3.Connection, cfg: Config) -> list[dict[str, Any]]:
                 "title": r["title"][:40],
                 "status": r["status"],
                 "cost_usd": round(total_usd, 4),
+                "posts": live,
+                "usd_per_post": round(total_usd / live, 4) if live else None,
                 "views": views,
+                "views_by_platform": by_platform,
                 "shares": sum(x["shares"] for x in latest),
                 "eng_rate": round(engaged / views, 4) if views else 0.0,
                 "usd_per_1k_views": round(total_usd / views * 1000, 4) if views else None,

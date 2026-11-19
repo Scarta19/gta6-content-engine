@@ -32,6 +32,10 @@ def fake_render(conn: sqlite3.Connection, tmp_path: Path, fmt: str = "news") -> 
         (sid, str(video), str(srt), db.now()),
     )
     assert cur.lastrowid
+    conn.execute(
+        "INSERT INTO gate_runs (render_id, passed, result_json, created_at) VALUES (?, 1, '{}', ?)",
+        (cur.lastrowid, db.now()),
+    )
     return cur.lastrowid
 
 
@@ -43,6 +47,15 @@ def test_review_requires_full_checklist(conn: sqlite3.Connection, tmp_path: Path
     assert not review.is_approved(conn, rid)
     assert review.decide(conn, rid, "Santiago", ALL_YES) == "approved"
     assert review.is_approved(conn, rid)
+
+
+def test_review_blocked_when_gates_fail(conn: sqlite3.Connection, tmp_path: Path) -> None:
+    rid = fake_render(conn, tmp_path)
+    conn.execute(
+        "INSERT INTO gate_runs (render_id, passed, result_json, created_at) VALUES (?, 0, '{}', ?)",
+        (rid, db.now()),
+    )
+    assert review.decide(conn, rid, "Santiago", ALL_YES) == "rejected"
 
 
 def test_dry_run_publish_sends_nothing(

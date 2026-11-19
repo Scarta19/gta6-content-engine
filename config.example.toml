@@ -37,6 +37,7 @@ output_usd_per_mtok = 15.0
 [tts]
 # "silent" = no voice (timing from word count, for previews/tests)
 # "piper"  = free local TTS (https://github.com/rhasspy/piper), set piper_model to a .onnx voice
+# "say"    = macOS built-in voices, free, good enough for tests
 # "openai" = OpenAI TTS API (needs OPENAI_API_KEY), paid per character
 provider = "silent"
 words_per_minute = 165
@@ -44,6 +45,7 @@ piper_model = ""
 openai_model = "gpt-4o-mini-tts"
 openai_voice = "onyx"
 openai_usd_per_1k_chars = 0.015
+say_voices = { en = "Samantha", es = "Paulina", pt = "Luciana", fr = "Thomas" }
 
 [render]
 width = 1080
@@ -75,6 +77,20 @@ timezone = "America/New_York"
 tiktok = ""
 instagram = ""
 facebook = ""
+youtube = ""
+
+[gates]
+# Launch date per multiple reputable reports (Rockstar announced Nov 19, 2026). Re-check before relying on it.
+launch_date = "2026-11-19"
+# After launch, scripts mentioning these terms are blocked unless they carry a spoiler warning.
+spoiler_terms = ["ending", "final mission", "dies", "death of", "plot twist", "betrayal", "who kills"]
+# Audience is adults (GTA VI is rated M 17+). Kid-directed wording is always blocked.
+min_duration_s = 30.0
+max_duration_s = 58.0
+# Rockstar-owned assets (press kit art, trailers, logos) are blocked unless explicitly allowed.
+allow_rockstar_assets = false
+# Hook score below this blocks approval (0-10). 0 = advisory only.
+min_hook_score = 0.0
 
 [costs]
 # Fixed monthly subscriptions amortized per published video in reports.

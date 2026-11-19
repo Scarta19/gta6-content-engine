@@ -8,7 +8,18 @@ from typing import Annotated, Any
 
 import typer
 
-from gce import analytics, assets, discovery, higgsfield, publish, render, review, scripting, verify
+from gce import (
+    analytics,
+    assets,
+    discovery,
+    gates,
+    higgsfield,
+    publish,
+    render,
+    review,
+    scripting,
+    verify,
+)
 from gce import config as config_mod
 from gce import db as db_mod
 from gce import zernio as zernio_mod
@@ -116,15 +127,24 @@ def sources(story_id: int) -> None:
 
 @script_app.command("new")
 def script_new(
-    fmt: Annotated[str, typer.Argument(help="news | analysis | concept")],
+    fmt: Annotated[str, typer.Argument(help=" | ".join(scripting.FORMATS))],
     story: Annotated[int | None, typer.Option(help="Story id (required for news)")] = None,
+    lang: Annotated[str, typer.Option(help="en | es | pt | fr")] = "en",
+    topic: Annotated[str, typer.Option(help="Topic for curiosity/guide/mystery")] = "",
+    source: Annotated[
+        list[str] | None, typer.Option(help="Citable source URL (repeatable)")
+    ] = None,
 ) -> None:
     """Generate a script with the LLM (costs API tokens)."""
     if fmt not in scripting.FORMATS:
         raise typer.BadParameter(f"format must be one of {scripting.FORMATS}")
+    if lang not in scripting.LANGUAGES:
+        raise typer.BadParameter(f"lang must be one of {list(scripting.LANGUAGES)}")
     c = cfg()
     with db_mod.session(c.paths.db) as conn:
-        script_id, problems = scripting.generate(conn, c.llm, fmt, story)
+        script_id, problems = scripting.generate(
+            conn, c.llm, fmt, story, language=lang, topic=topic, extra_sources=source
+        )
         typer.echo(scripting.to_json(scripting.load(conn, script_id)))
     _report_problems(script_id, problems)
 
@@ -132,17 +152,36 @@ def script_new(
 @script_app.command("import")
 def script_import(
     path: Path,
-    fmt: Annotated[str, typer.Option("--format", help="news | analysis | concept")],
+    fmt: Annotated[str, typer.Option("--format", help=" | ".join(scripting.FORMATS))],
     story: int | None = None,
+    lang: Annotated[str, typer.Option(help="en | es | pt | fr")] = "en",
 ) -> None:
     """Import a hand-written (or Claude Code-written) script JSON. No API cost."""
     data = json.loads(path.read_text(encoding="utf-8"))
     with db_mod.session(cfg().paths.db) as conn:
         script_id = scripting.save(
-            conn, scripting.Script.from_dict(data, fmt, story), model="manual"
+            conn, scripting.Script.from_dict(data, fmt, story, lang), model="manual"
         )
         problems = scripting.check(conn, script_id)
     _report_problems(script_id, problems)
+
+
+@script_app.command("inspire")
+def script_inspire(
+    script_id: int,
+    url: str,
+    creator: str = "",
+    platform: str = "",
+    note: Annotated[str, typer.Option(help="What we took: topic, format, pacing")] = "",
+) -> None:
+    """Log a third-party video that inspired a script. Ideas only: its media is never used."""
+    with db_mod.session(cfg().paths.db) as conn:
+        conn.execute(
+            "INSERT INTO inspirations (script_id, url, creator, platform, note, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            (script_id, url, creator, platform, note, db_mod.now()),
+        )
+    typer.echo(f"inspiration logged for script {script_id}")
 
 
 @script_app.command("show")
@@ -248,14 +287,48 @@ def render_cmd(
     )
 
 
+@app.command("gates")
+def gates_cmd(
+    render_id: int,
+    llm: Annotated[
+        bool, typer.Option(help="Also score the hook with the LLM (+2 alternatives)")
+    ] = False,
+) -> None:
+    """Run the facts, rights/safety and virality gates. Exit code 1 if any fails."""
+    c = cfg()
+    with db_mod.session(c.paths.db) as conn:
+        report = gates.run(conn, c, render_id, use_llm=llm)
+    _print_gates(report)
+    if not report.passed:
+        raise typer.Exit(1)
+
+
+def _print_gates(report: gates.GateReport) -> None:
+    for g in report.gates:
+        typer.secho(
+            f"[{'PASS' if g.passed else 'FAIL'}] {g.name}", fg="green" if g.passed else "red"
+        )
+        for issue in g.issues:
+            typer.echo(f"    - {issue}")
+        for k, v in g.info.items():
+            typer.echo(f"    {k}: {json.dumps(v)}")
+
+
 @app.command("review")
 def review_cmd(
     render_id: int,
     reviewer: Annotated[str, typer.Option(prompt="Reviewer name")],
     notes: str = "",
+    llm: Annotated[bool, typer.Option(help="LLM hook scoring in the gates")] = False,
 ) -> None:
-    """Interactive human approval checklist."""
-    with db_mod.session(cfg().paths.db) as conn:
+    """Run quality gates, then the interactive human approval checklist."""
+    c = cfg()
+    with db_mod.session(c.paths.db) as conn:
+        report = gates.run(conn, c, render_id, use_llm=llm)
+        _print_gates(report)
+        if not report.passed:
+            typer.secho("quality gates failed: fix the script/assets and re-render", fg="red")
+            raise typer.Exit(1)
         echo_json(review.summary(conn, render_id))
         answers = {key: typer.confirm(text, default=False) for key, text in review.CHECKLIST}
         decision = review.decide(conn, render_id, reviewer, answers, notes)
@@ -272,7 +345,9 @@ def export_cmd(render_id: int, dest: Path = Path("out/exports")) -> None:
 @app.command("publish")
 def publish_cmd(
     render_id: int,
-    platforms: Annotated[str, typer.Option(help="Comma list")] = "tiktok,instagram,facebook",
+    platforms: Annotated[str, typer.Option(help="Comma list")] = (
+        "tiktok,instagram,facebook,youtube"
+    ),
     live: Annotated[bool, typer.Option(help="Really post via Zernio")] = False,
     schedule: Annotated[str | None, typer.Option(help="e.g. 2026-11-20T18:00:00")] = None,
     tiktok_privacy: str = "PUBLIC_TO_EVERYONE",

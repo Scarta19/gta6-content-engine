@@ -49,7 +49,8 @@ CREATE TABLE IF NOT EXISTS scripts (
     rights_notes TEXT NOT NULL DEFAULT '',
     ai_generated INTEGER NOT NULL DEFAULT 0,
     model TEXT NOT NULL DEFAULT '',
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    language TEXT NOT NULL DEFAULT 'en'
 );
 CREATE TABLE IF NOT EXISTS assets (
     id INTEGER PRIMARY KEY,
@@ -111,6 +112,22 @@ CREATE TABLE IF NOT EXISTS metrics (
     saves INTEGER NOT NULL DEFAULT 0,
     engagement_rate REAL NOT NULL DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS gate_runs (
+    id INTEGER PRIMARY KEY,
+    render_id INTEGER NOT NULL REFERENCES renders(id),
+    passed INTEGER NOT NULL,
+    result_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS inspirations (
+    id INTEGER PRIMARY KEY,
+    script_id INTEGER REFERENCES scripts(id),
+    url TEXT NOT NULL,
+    creator TEXT NOT NULL DEFAULT '',
+    platform TEXT NOT NULL DEFAULT '',
+    note TEXT NOT NULL DEFAULT '',          -- what we took: topic/format/pacing, never media
+    created_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS costs (
     id INTEGER PRIMARY KEY,
     script_id INTEGER REFERENCES scripts(id),
@@ -133,7 +150,19 @@ def connect(path: Path) -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.executescript(SCHEMA)
+    _migrate(conn)
     return conn
+
+
+MIGRATIONS = (("scripts", "language", "TEXT NOT NULL DEFAULT 'en'"),)
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Add columns introduced after a database was created."""
+    for table, column, ddl in MIGRATIONS:
+        cols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+        if column not in cols:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
 
 
 @contextmanager

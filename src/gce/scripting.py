@@ -23,8 +23,8 @@ LANGUAGES = {
 }
 AI_DISCLOSURE_RE = re.compile(
     r"\b(ai[- ]generated|ai concept|made with ai|fan concept|"
-    r"generad[oa] (con|por) ia|hech[oa] con ia|concepto (de )?ia|"
-    r"gerad[oa] (com|por) ia|feito com ia|"
+    r"generad[oa]s? (con|por) ia|hech[oa]s? con ia|concepto (de )?ia|"
+    r"gerad[oa]s? (com|por) ia|feit[oa]s? com ia|"
     r"g[ée]n[ée]r[ée]e? par (l'|l’)?ia|cr[ée][ée]e? avec (l'|l’)?ia)\b",
     re.I,
 )

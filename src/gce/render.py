@@ -36,7 +36,9 @@ def _segment(asset: sqlite3.Row | None, seconds: float, out: Path, cfg: Config) 
                 "-f",
                 "lavfi",
                 "-i",
-                f"color=c={r.background_color}:s={w}x{h}:r={fps}",
+                # Animated, non-repeating gradient so the frame is never static.
+                f"gradients=s={w}x{h}:r={fps}:c0=0x1b1464:c1=0xff3d8b:c2=0x00c2ff:"
+                f"nb_colors=3:speed=0.008:d={seconds:.3f}",
                 "-t",
                 f"{seconds:.3f}",
                 *common,
@@ -133,7 +135,9 @@ def render(
             "-i",
             audio_path.name,
             "-vf",
-            "ass=captions.ass",
+            # Captions, then a thin progress bar (a proven retention cue on Shorts/Reels).
+            f"ass=captions.ass,drawbox=x=0:y=ih-14:w=iw*t/{total:.3f}:h=14:"
+            "color=0xFFE500@0.95:t=fill",
             "-map",
             "0:v",
             "-map",

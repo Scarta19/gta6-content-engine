@@ -16,6 +16,11 @@ class Cue:
     text: str
 
 
+# Motion in the first frames: text scales in instead of appearing flat.
+POP_IN = r"{\fscx60\fscy60\t(0,180,\fscx108\fscy108)\t(180,260,\fscx100\fscy100)}"
+CAPTION_POP = r"{\fscx88\fscy88\t(0,90,\fscx100\fscy100)}"
+
+
 def chunk_words(text: str, max_words: int) -> list[str]:
     """Split into short caption chunks, breaking early at sentence punctuation."""
     chunks: list[str] = []
@@ -102,14 +107,16 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """  # noqa: E501
     events: list[str] = []
     hook_end = min(2.8, total_seconds)
-    events.append(f"Dialogue: 1,{_ass_ts(0)},{_ass_ts(hook_end)},Hook,,0,0,0,,{_ass_escape(hook)}")
+    events.append(
+        f"Dialogue: 1,{_ass_ts(0)},{_ass_ts(hook_end)},Hook,,0,0,0,,{POP_IN}{_ass_escape(hook)}"
+    )
     if beats:
         span = (total_seconds - hook_end) / len(beats)
         for i, beat in enumerate(beats):
             start = hook_end + i * span
             events.append(
                 f"Dialogue: 1,{_ass_ts(start)},{_ass_ts(start + span)},Beat,,0,0,0,,"
-                f"{_ass_escape(beat)}"
+                f"{POP_IN}{_ass_escape(beat)}"
             )
     if ai_label:
         events.append(
@@ -118,7 +125,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         )
     for c in cues:
         events.append(
-            f"Dialogue: 0,{_ass_ts(c.start)},{_ass_ts(c.end)},Caption,,0,0,0,,{_ass_escape(c.text)}"
+            f"Dialogue: 0,{_ass_ts(c.start)},{_ass_ts(c.end)},Caption,,0,0,0,,"
+            f"{CAPTION_POP}{_ass_escape(c.text)}"
         )
     path.write_text(header + "\n".join(events) + "\n", encoding="utf-8")
     return path

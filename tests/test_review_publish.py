@@ -7,7 +7,7 @@ from pathlib import Path
 import httpx
 import pytest
 
-from gce import config, db, publish, review, scripting, zernio
+from gce import assets, config, db, publish, review, scripting, zernio
 from tests.conftest import NEWS_SCRIPT
 
 ALL_YES = {k: True for k, _ in review.CHECKLIST}
@@ -166,3 +166,23 @@ def test_export_package(conn: sqlite3.Connection, tmp_path: Path) -> None:
         "caption.txt",
         "review.json",
     }
+
+
+def test_ai_broll_marks_youtube_synthetic_and_needs_disclosure(
+    conn: sqlite3.Connection, cfg: config.Config, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rid = fake_render(conn, tmp_path)  # factual news script, not flagged ai_generated
+    sid = conn.execute("SELECT script_id FROM renders WHERE id = ?", (rid,)).fetchone()[0]
+    clip = tmp_path / "clip.mp4"
+    clip.write_bytes(b"\x00" * 16)
+    aid = assets.add(conn, clip, "ai_generated", "higgsfield", "job:abc")
+    assets.attach(conn, sid, [aid])
+
+    out = publish.publish(conn, cfg, rid, ["youtube", "tiktok"])
+    yt = next(p for p in out["request"]["platforms"] if p["platform"] == "youtube")
+    assert yt["platformSpecificData"]["containsSyntheticMedia"] is True
+
+    review.decide(conn, rid, "Santiago", ALL_YES)
+    monkeypatch.setenv("GCE_ALLOW_LIVE_PUBLISH", "yes")
+    with pytest.raises(PermissionError, match="ai-disclosure-confirmed"):
+        publish.publish(conn, cfg, rid, ["youtube"], live=True)

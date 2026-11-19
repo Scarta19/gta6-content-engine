@@ -101,7 +101,7 @@ Style: Caption,{cfg.font},{cfg.font_size},&H00FFFFFF,&H000000FF,&H00000000,&H640
 Style: Hook,{cfg.font},{int(cfg.font_size * 1.25)},&H0000E5FF,&H000000FF,&H00000000,&H64000000,-1,0,0,0,100,100,0,0,1,7,3,8,70,70,330,1
 Style: Beat,{cfg.font},{int(cfg.font_size * 0.95)},&H00FFFFFF,&H000000FF,&H00000000,&HA0000000,-1,0,0,0,100,100,0,0,3,4,0,8,90,90,330,1
 Style: Brand,{cfg.font},{int(cfg.font_size * 0.45)},&H50FFFFFF,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,2,0,3,40,150,60,1
-Style: Label,{cfg.font},{int(cfg.font_size * 0.5)},&H00FFFFFF,&H000000FF,&H00000000,&HB4000000,-1,0,0,0,100,100,0,0,3,3,0,8,40,40,170,1
+Style: Label,{cfg.font},{int(cfg.font_size * 0.62)},&H00FFFFFF,&H000000FF,&H00000000,&H200000D0,-1,0,0,0,100,100,0,0,3,3,0,8,40,40,170,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text

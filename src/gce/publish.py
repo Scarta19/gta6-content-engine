@@ -9,7 +9,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from gce import db, review, scripting, zernio
+from gce import assets, db, review, scripting, zernio
 from gce.config import Config
 
 PLATFORMS = ("tiktok", "instagram", "facebook", "youtube")
@@ -61,13 +61,17 @@ def publish(
     r = _render(conn, render_id)
     script = scripting.load(conn, r["script_id"])
     caption = caption_for(conn, r["script_id"])
+    # AI disclosure covers the script flag AND any AI-generated visual in the cut.
+    ai_content = script.ai_generated or any(
+        a["ai_generated"] for a in assets.for_script(conn, r["script_id"])
+    )
 
     if live:
         if not review.is_approved(conn, render_id):
             raise PermissionError(f"render {render_id} is not approved. Run `gce review` first.")
         if os.environ.get("GCE_ALLOW_LIVE_PUBLISH") != "yes":
             raise PermissionError("set GCE_ALLOW_LIVE_PUBLISH=yes to enable live publishing")
-        if script.ai_generated and not ai_disclosure_confirmed:
+        if ai_content and not ai_disclosure_confirmed:
             raise PermissionError(
                 "AI-generated video: confirm the platform AI-content label is handled and pass "
                 "--ai-disclosure-confirmed"
@@ -85,7 +89,7 @@ def publish(
         tiktok_privacy=tiktok_privacy,
         title=script.title,
         tags=script.hashtags,
-        ai_generated=script.ai_generated,
+        ai_generated=ai_content,
     )
     if not live:
         for p in platforms:

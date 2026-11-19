@@ -9,7 +9,6 @@ assets_dir = "assets"       # licensed/owned media you register with `gce asset 
 # RSS/Atom feeds. Discovery only collects headlines + links; verification decides what is usable.
 feeds = [
   "https://news.google.com/rss/search?q=%22GTA+6%22+OR+%22GTA+VI%22+OR+%22Grand+Theft+Auto+VI%22&hl=en-US&gl=US&ceid=US:en",
-  "https://www.reddit.com/r/GTA6/.rss",
   "https://feeds.feedburner.com/ign/games-all",
 ]
 keywords = ["gta 6", "gta vi", "grand theft auto vi", "grand theft auto 6", "rockstar games", "leonida", "vice city"]
@@ -29,7 +28,7 @@ reputable_domains = [
 [llm]
 provider = "anthropic"
 model = "claude-sonnet-5-5"
-max_tokens = 2000
+max_tokens = 4000
 # USD per million tokens, used for cost tracking. Check current pricing before relying on these.
 input_usd_per_mtok = 3.0
 output_usd_per_mtok = 15.0
@@ -52,7 +51,7 @@ width = 1080
 height = 1920
 fps = 30
 font = "DejaVu Sans"
-font_size = 64
+font_size = 76
 max_words_per_caption = 4
 ai_label_text = "AI-GENERATED CONCEPT - NOT REAL GAMEPLAY"
 background_color = "0x101418"

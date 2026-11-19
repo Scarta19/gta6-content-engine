@@ -17,8 +17,9 @@ provenance, renders, approvals, publications, metrics and costs.
 Requirements: Python 3.12, [uv](https://docs.astral.sh/uv/), FFmpeg with libass.
 
 ```bash
-# macOS
-brew install uv ffmpeg
+# macOS: plain `ffmpeg` lacks libass (captions); use ffmpeg-full
+brew install uv ffmpeg-full
+export PATH="/opt/homebrew/opt/ffmpeg-full/bin:$PATH"   # add to ~/.zshrc
 # Ubuntu/Debian
 sudo apt-get install -y ffmpeg && curl -LsSf https://astral.sh/uv/install.sh | sh
 

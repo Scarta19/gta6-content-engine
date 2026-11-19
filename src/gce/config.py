@@ -35,7 +35,7 @@ class VerificationCfg:
 class LlmCfg:
     provider: str = "anthropic"
     model: str = "claude-sonnet-5-5"
-    max_tokens: int = 2000
+    max_tokens: int = 4000
     input_usd_per_mtok: float = 3.0
     output_usd_per_mtok: float = 15.0
 
@@ -62,7 +62,7 @@ class RenderCfg:
     height: int = 1920
     fps: int = 30
     font: str = "DejaVu Sans"
-    font_size: int = 64
+    font_size: int = 76
     max_words_per_caption: int = 4
     ai_label_text: str = "AI-GENERATED CONCEPT - NOT REAL GAMEPLAY"
     background_color: str = "0x101418"

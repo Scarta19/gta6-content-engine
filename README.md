@@ -120,7 +120,7 @@ never used: the rights gate blocks any asset whose source matches a logged inspi
    `allow_rockstar_assets = true` after legal review; AI visuals disclosed in the caption;
    after `launch_date`, spoiler terms need a "spoiler" warning in the hook or caption;
    kid-directed wording is always blocked (GTA VI is rated M 17+, the audience is adults).
-3. **Virality pre-check**: hook of 12 words or fewer on screen at 0.0 s, 30 to 58 s,
+3. **Virality pre-check**: hook of 12 words or fewer on screen at 0.0 s, 20 to 58 s,
    burned-in captions, one clear CTA, and a hook score (heuristic by default; `--llm` asks
    the model for a 0-10 score plus two alternative hooks, with cost tracked).
    Set `min_hook_score` to make the score blocking once we have performance data.

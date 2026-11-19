@@ -96,7 +96,7 @@ class GatesCfg:
     spoiler_terms: list[str] = field(
         default_factory=lambda: ["ending", "final mission", "plot twist", "betrayal"]
     )
-    min_duration_s: float = 30.0
+    min_duration_s: float = 20.0
     max_duration_s: float = 58.0
     allow_rockstar_assets: bool = False
     min_hook_score: float = 0.0

@@ -55,6 +55,14 @@ def summary(conn: sqlite3.Connection, render_id: int) -> dict[str, Any]:
             for a in assets.for_script(conn, render["script_id"])
         ],
         "automated_check_problems": scripting.check(conn, render["script_id"]),
+        "inspirations": [
+            dict(r)
+            for r in conn.execute(
+                "SELECT url, creator, platform, note FROM inspirations WHERE script_id = ?",
+                (render["script_id"],),
+            )
+        ],
+        "language": script.language,
         "quality_gates_passed": gates.latest_passed(conn, render_id),
         "cost_usd": round(float(cost), 4),
     }

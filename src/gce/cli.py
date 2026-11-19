@@ -127,15 +127,24 @@ def sources(story_id: int) -> None:
 
 @script_app.command("new")
 def script_new(
-    fmt: Annotated[str, typer.Argument(help="news | analysis | concept")],
+    fmt: Annotated[str, typer.Argument(help=" | ".join(scripting.FORMATS))],
     story: Annotated[int | None, typer.Option(help="Story id (required for news)")] = None,
+    lang: Annotated[str, typer.Option(help="en | es | pt | fr")] = "en",
+    topic: Annotated[str, typer.Option(help="Topic for curiosity/guide/mystery")] = "",
+    source: Annotated[
+        list[str] | None, typer.Option(help="Citable source URL (repeatable)")
+    ] = None,
 ) -> None:
     """Generate a script with the LLM (costs API tokens)."""
     if fmt not in scripting.FORMATS:
         raise typer.BadParameter(f"format must be one of {scripting.FORMATS}")
+    if lang not in scripting.LANGUAGES:
+        raise typer.BadParameter(f"lang must be one of {list(scripting.LANGUAGES)}")
     c = cfg()
     with db_mod.session(c.paths.db) as conn:
-        script_id, problems = scripting.generate(conn, c.llm, fmt, story)
+        script_id, problems = scripting.generate(
+            conn, c.llm, fmt, story, language=lang, topic=topic, extra_sources=source
+        )
         typer.echo(scripting.to_json(scripting.load(conn, script_id)))
     _report_problems(script_id, problems)
 
@@ -143,17 +152,36 @@ def script_new(
 @script_app.command("import")
 def script_import(
     path: Path,
-    fmt: Annotated[str, typer.Option("--format", help="news | analysis | concept")],
+    fmt: Annotated[str, typer.Option("--format", help=" | ".join(scripting.FORMATS))],
     story: int | None = None,
+    lang: Annotated[str, typer.Option(help="en | es | pt | fr")] = "en",
 ) -> None:
     """Import a hand-written (or Claude Code-written) script JSON. No API cost."""
     data = json.loads(path.read_text(encoding="utf-8"))
     with db_mod.session(cfg().paths.db) as conn:
         script_id = scripting.save(
-            conn, scripting.Script.from_dict(data, fmt, story), model="manual"
+            conn, scripting.Script.from_dict(data, fmt, story, lang), model="manual"
         )
         problems = scripting.check(conn, script_id)
     _report_problems(script_id, problems)
+
+
+@script_app.command("inspire")
+def script_inspire(
+    script_id: int,
+    url: str,
+    creator: str = "",
+    platform: str = "",
+    note: Annotated[str, typer.Option(help="What we took: topic, format, pacing")] = "",
+) -> None:
+    """Log a third-party video that inspired a script. Ideas only: its media is never used."""
+    with db_mod.session(cfg().paths.db) as conn:
+        conn.execute(
+            "INSERT INTO inspirations (script_id, url, creator, platform, note, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            (script_id, url, creator, platform, note, db_mod.now()),
+        )
+    typer.echo(f"inspiration logged for script {script_id}")
 
 
 @script_app.command("show")
@@ -317,7 +345,9 @@ def export_cmd(render_id: int, dest: Path = Path("out/exports")) -> None:
 @app.command("publish")
 def publish_cmd(
     render_id: int,
-    platforms: Annotated[str, typer.Option(help="Comma list")] = "tiktok,instagram,facebook",
+    platforms: Annotated[str, typer.Option(help="Comma list")] = (
+        "tiktok,instagram,facebook,youtube"
+    ),
     live: Annotated[bool, typer.Option(help="Really post via Zernio")] = False,
     schedule: Annotated[str | None, typer.Option(help="e.g. 2026-11-20T18:00:00")] = None,
     tiktok_privacy: str = "PUBLIC_TO_EVERYONE",

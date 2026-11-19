@@ -12,7 +12,7 @@ from typing import Any
 from gce import db, review, scripting, zernio
 from gce.config import Config
 
-PLATFORMS = ("tiktok", "instagram", "facebook")
+PLATFORMS = ("tiktok", "instagram", "facebook", "youtube")
 PLACEHOLDER_MEDIA_URL = "<uploaded via POST /media/presign at publish time>"
 
 
@@ -83,6 +83,9 @@ def publish(
         timezone=cfg.zernio.timezone,
         scheduled_for=scheduled_for,
         tiktok_privacy=tiktok_privacy,
+        title=script.title,
+        tags=script.hashtags,
+        ai_generated=script.ai_generated,
     )
     if not live:
         for p in platforms:

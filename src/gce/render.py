@@ -100,7 +100,7 @@ def render(
     work.mkdir(parents=True, exist_ok=True)
 
     narration = f"{script.voiceover} {script.cta}".strip()
-    audio_path, tts_usd = tts.synthesize(narration, work / "voice", cfg.tts)
+    audio_path, tts_usd = tts.synthesize(narration, work / "voice", cfg.tts, script.language)
     total = media.duration(audio_path) + 0.4  # small tail so the last caption can be read
     if total > cfg.render.max_duration_s and not force:
         raise ValueError(

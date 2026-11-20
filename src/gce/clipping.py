@@ -426,7 +426,9 @@ def render_clip(conn: sqlite3.Connection, cfg: Config, clip_id: int) -> Path:
     # Never brand campaign clips with the faceless channel's handle.
     rcfg = dataclasses.replace(cfg.render, watermark=camp["watermark"])
     cues = clip_cues(words, clip["start_s"], clip["end_s"], rcfg.max_words_per_caption)
-    subtitles.write_ass(cues, work / "captions.ass", rcfg, clip["hook"], [], length, False)
+    # Caption fonts have no emoji glyphs (they render as boxes); keep emoji for the post text.
+    hook = re.sub(r"[\U00010000-\U0010FFFF\u2600-\u27BF\uFE0F]", "", clip["hook"] or "").strip()
+    subtitles.write_ass(cues, work / "captions.ass", rcfg, hook, [], length, False)
     w, h = rcfg.width, rcfg.height
     overlay = camp["overlay_path"]
     # The campaign logo sits in the blurred gap between the hook and the 16:9 gameplay strip:

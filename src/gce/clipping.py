@@ -427,7 +427,7 @@ def render_clip(conn: sqlite3.Connection, cfg: Config, clip_id: int) -> Path:
     rcfg = dataclasses.replace(cfg.render, watermark=camp["watermark"])
     cues = clip_cues(words, clip["start_s"], clip["end_s"], rcfg.max_words_per_caption)
     # Caption fonts have no emoji glyphs (they render as boxes); keep emoji for the post text.
-    hook = re.sub(r"[\U00010000-\U0010FFFF\u2600-\u27BF\uFE0F]", "", clip["hook"] or "").strip()
+    hook = " ".join(re.sub(r"[\U00010000-\U0010FFFF\u2600-\u27BF\uFE0F]", "", clip["hook"] or "").split())
     subtitles.write_ass(cues, work / "captions.ass", rcfg, hook, [], length, False)
     w, h = rcfg.width, rcfg.height
     overlay = camp["overlay_path"]

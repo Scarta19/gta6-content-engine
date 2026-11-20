@@ -429,13 +429,12 @@ def render_clip(conn: sqlite3.Connection, cfg: Config, clip_id: int) -> Path:
     subtitles.write_ass(cues, work / "captions.ass", rcfg, clip["hook"], [], length, False)
     w, h = rcfg.width, rcfg.height
     overlay = camp["overlay_path"]
-    # The campaign logo sits in the blurred band above the gameplay strip so it never
-    # covers the stream: 80% of the frame width, bottom edge just above a 16:9 strip.
-    logo_w = int(w * 0.8) // 2 * 2
-    strip_top = (h - w * 9 // 16) // 2
+    # The campaign logo sits in the blurred band below the gameplay strip and captions, so
+    # it never covers the stream or the hook at the top: 70% of the frame width.
+    logo_w = int(w * 0.7) // 2 * 2
     branded = (
         f"[base];[1:v]scale={logo_w}:-2,format=rgba[ov];"
-        f"[base][ov]overlay=(W-w)/2:max(24\\,{strip_top}-h-24):shortest=1,"
+        "[base][ov]overlay=(W-w)/2:H-h-90:shortest=1,"
         if overlay
         else ","
     )

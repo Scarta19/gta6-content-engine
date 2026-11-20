@@ -85,7 +85,18 @@ COLUMNS = (
     ("campaigns", "kind", "TEXT NOT NULL DEFAULT 'rate'"),  # rate | pool
     ("campaigns", "pool_usd", "REAL NOT NULL DEFAULT 0"),
     ("campaigns", "min_views", "INTEGER NOT NULL DEFAULT 0"),  # a post counts only above this
+    # Campaign-provided overlay (PNG with transparency) that every clip must carry.
+    ("campaigns", "overlay_path", "TEXT NOT NULL DEFAULT ''"),
 )
+
+
+def set_overlay(conn: sqlite3.Connection, campaign_id: int, path: Path | None) -> None:
+    if path is not None and not path.exists():
+        raise FileNotFoundError(path)
+    conn.execute(
+        "UPDATE campaigns SET overlay_path = ? WHERE id = ?",
+        (str(path.resolve()) if path else "", campaign_id),
+    )
 
 
 def ensure_schema(conn: sqlite3.Connection) -> None:
@@ -417,13 +428,21 @@ def render_clip(conn: sqlite3.Connection, cfg: Config, clip_id: int) -> Path:
     cues = clip_cues(words, clip["start_s"], clip["end_s"], rcfg.max_words_per_caption)
     subtitles.write_ass(cues, work / "captions.ass", rcfg, clip["hook"], [], length, False)
     w, h = rcfg.width, rcfg.height
+    overlay = camp["overlay_path"]
+    branded = (
+        f"[base];[1:v]scale={w}:{h}:force_original_aspect_ratio=decrease,format=rgba[ov];"
+        "[base][ov]overlay=(W-w)/2:(H-h)/2:shortest=1,"
+        if overlay
+        else ","
+    )
     vf = (
         f"[0:v]split[a][b];[a]scale={w}:{h}:force_original_aspect_ratio=increase,"
         f"crop={w}:{h},boxblur=24:2,eq=brightness=-0.08[bg];"
-        f"[b]scale={w}:-2[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2,setsar=1,"
+        f"[b]scale={w}:-2[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2,setsar=1{branded}"
         f"ass=captions.ass,drawbox=x=0:y=ih-14:w=iw*t/{length:.3f}:h=14:"
         "color=0xFFE500@0.95:t=fill[v]"
     )
+    overlay_input = ["-loop", "1", "-i", overlay] if overlay else []
     out = work / f"clip_{clip_id}.mp4"
     media.run(
         [
@@ -433,6 +452,7 @@ def render_clip(conn: sqlite3.Connection, cfg: Config, clip_id: int) -> Path:
             f"{length:.3f}",
             "-i",
             src["path"],
+            *overlay_input,
             "-filter_complex",
             vf,
             "-map",

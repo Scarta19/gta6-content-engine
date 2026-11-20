@@ -50,6 +50,11 @@ def test_clip_render_post_report(
     words = clipping.words_of(conn, sid)
     s, e = clipping.snap_to_words(words, 3.1, 25.0)
     clip_id = clipping.save_clip(conn, sid, s, e, hook="He jumped the bridge?!", title="Insane")
+    png = tmp_path / "overlay.png"
+    media.run(
+        ["-f", "lavfi", "-i", "color=c=red@0.5:s=1080x200,format=rgba", "-frames:v", "1", str(png)]
+    )
+    clipping.set_overlay(conn, 1, png)
     out = clipping.render_clip(conn, cfg, clip_id)
     assert out.exists() and media.has_audio(out)
     assert abs(media.duration(out) - (e - s)) < 0.3

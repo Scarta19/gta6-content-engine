@@ -557,6 +557,17 @@ def clip_campaign_add(
     typer.echo(f"campaign {cid}: {name}")
 
 
+@clip_app.command("overlay")
+def clip_overlay(
+    campaign: str,
+    path: Annotated[Path | None, typer.Argument(help="PNG overlay; omit to clear")] = None,
+) -> None:
+    """Set the campaign-provided overlay every clip must carry (e.g. the streamer's frame)."""
+    with db_mod.session(cfg().paths.db) as conn:
+        clipping.set_overlay(conn, clipping.campaign(conn, campaign)["id"], path)
+    typer.echo("overlay set" if path else "overlay cleared")
+
+
 @clip_app.command("campaigns")
 def clip_campaigns() -> None:
     with db_mod.session(cfg().paths.db) as conn:

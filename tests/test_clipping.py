@@ -94,3 +94,47 @@ def test_pool_campaign_counts_only_qualifying_views(
     rep = clipping.report(conn)[0]
     assert rep["kind"] == "pool" and rep["qualifying_posts"] == 1
     assert rep["qualifying_views"] == 500_000 and rep["est_gross_usd"] == 0.0
+
+
+def test_publish_clip_via_zernio(
+    conn: sqlite3.Connection, cfg: config.Config, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import json
+
+    import httpx
+
+    from gce import zernio
+
+    _, sid = _source(conn, tmp_path)
+    clip_id = clipping.save_clip(conn, sid, 3.0, 15.0, hook="He jumped?!", title="Insane jump")
+    clipping.render_clip(conn, cfg, clip_id)
+    dry = clipping.publish_clip(conn, cfg, clip_id, ["tiktok", "youtube"])
+    assert dry["mode"] == "dry_run" and "#ad @streamer" in dry["request"]["content"]
+    with pytest.raises(ValueError):
+        clipping.publish_clip(conn, cfg, clip_id, ["facebook"])
+    with pytest.raises(PermissionError):
+        clipping.publish_clip(conn, cfg, clip_id, ["tiktok"], live=True)
+    clipping.decide(conn, clip_id, "Santiago", approve=True)
+    with pytest.raises(PermissionError):
+        clipping.publish_clip(conn, cfg, clip_id, ["tiktok"], live=True)
+    monkeypatch.setenv("GCE_ALLOW_LIVE_PUBLISH", "yes")
+    monkeypatch.setenv("ZERNIO_API_KEY", "sk_test")
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.url.path.endswith("/media/presign"):
+            return httpx.Response(
+                200, json={"uploadUrl": "https://storage.test/up", "publicUrl": "https://cdn/v"}
+            )
+        if req.url.host == "storage.test":
+            return httpx.Response(200)
+        if req.url.path.endswith("/posts"):
+            body = json.loads(req.content)
+            assert body["platforms"][0]["accountId"] == "a" * 24
+            return httpx.Response(200, json={"post": {"_id": "p" * 24}})
+        return httpx.Response(404)
+
+    client = zernio.Client(cfg.zernio, http=httpx.Client(transport=httpx.MockTransport(handler)))
+    out = clipping.publish_clip(conn, cfg, clip_id, ["tiktok"], live=True, client=client)
+    assert out["mode"] == "live" and len(out["clip_posts"]) == 1
+    pending = clipping.unsubmitted(conn)
+    assert [r["url"] for r in pending] == ["zernio:" + "p" * 24]

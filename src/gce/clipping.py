@@ -539,6 +539,85 @@ def record_post(
     return cur.lastrowid
 
 
+ZERNIO_PLATFORMS = ("tiktok", "instagram", "youtube")
+
+
+def publish_clip(
+    conn: sqlite3.Connection,
+    cfg: Config,
+    clip_id: int,
+    platforms: list[str],
+    *,
+    live: bool = False,
+    scheduled_for: str | None = None,
+    client: Any = None,
+) -> dict[str, Any]:
+    """Post an approved, rendered clip through Zernio (official platform APIs).
+
+    Dry run by default. Live needs an approved clip and GCE_ALLOW_LIVE_PUBLISH=yes. Each
+    platform gets a clip_posts row (url "zernio:<post id>", submitted=0) so the campaign
+    submission, which stays manual, can be tracked. Campaign clips are real stream footage, so
+    the synthetic-media flag is off.
+    """
+    import os
+
+    from gce import zernio
+
+    clip = _clip(conn, clip_id)
+    camp = conn.execute(
+        "SELECT c.platforms FROM campaigns c JOIN clip_sources s ON s.campaign_id = c.id"
+        " WHERE s.id = ?",
+        (clip["source_id"],),
+    ).fetchone()
+    bad = [p for p in platforms if p not in ZERNIO_PLATFORMS or p not in camp["platforms"].split()]
+    if bad:
+        raise ValueError(f"campaign accepts {camp['platforms']}; cannot publish to {bad}")
+    if not clip["path"] or not Path(clip["path"]).exists():
+        raise FileNotFoundError(f"clip {clip_id} is not rendered; run `gce clip render` first")
+    caption = (Path(clip["path"]).parent / "caption.txt").read_text(encoding="utf-8").strip()
+    if live:
+        if clip["status"] != "approved":
+            raise PermissionError(f"clip {clip_id} is {clip['status']}; approve it first")
+        if os.environ.get("GCE_ALLOW_LIVE_PUBLISH") != "yes":
+            raise PermissionError("set GCE_ALLOW_LIVE_PUBLISH=yes to enable live publishing")
+    accounts = (
+        cfg.zernio.accounts
+        if live
+        else {p: cfg.zernio.accounts.get(p) or "<account id>" for p in platforms}
+    )
+    body = zernio.build_post_body(
+        caption=caption,
+        media_url="<uploaded at publish time>",
+        platforms=platforms,
+        accounts=accounts,
+        timezone=cfg.zernio.timezone,
+        scheduled_for=scheduled_for,
+        tiktok_privacy="PUBLIC_TO_EVERYONE",
+        title=clip["title"] or clip["hook"],
+        tags=re.findall(r"#(\w+)", caption),
+        ai_generated=False,
+    )
+    if not live:
+        return {"mode": "dry_run", "request": body}
+    zc = client or zernio.Client(cfg.zernio)
+    body["mediaItems"][0]["url"] = zc.upload(Path(clip["path"]))
+    resp = zc.create_post(body)
+    post = resp.get("post", resp)
+    post_id = str(post.get("_id", ""))
+    if not post_id:
+        raise zernio.ZernioError(f"Zernio response had no post id: {json.dumps(resp)[:500]}")
+    ids = [record_post(conn, clip_id, p, f"zernio:{post_id}") for p in platforms]
+    return {"mode": "live", "post_id": post_id, "clip_posts": ids}
+
+
+def unsubmitted(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    """Posts not yet submitted on their campaign (Content Rewards wants this within 30 min)."""
+    return conn.execute(
+        "SELECT p.*, k.title FROM clip_posts p JOIN clips k ON k.id = p.clip_id"
+        " WHERE p.submitted = 0 ORDER BY p.created_at"
+    ).fetchall()
+
+
 def set_views(conn: sqlite3.Connection, post_id: int, views: int, submitted: bool | None) -> None:
     conn.execute(
         "UPDATE clip_posts SET views = ?, views_at = ?,"

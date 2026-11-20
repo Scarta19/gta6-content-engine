@@ -686,6 +686,32 @@ def clip_post(
         typer.echo(f"post {clipping.record_post(conn, clip_id, platform, url, submitted)}")
 
 
+@clip_app.command("publish")
+def clip_publish(
+    clip_id: int,
+    platforms: Annotated[list[str], typer.Option("--platform", "-p")],
+    live: Annotated[bool, typer.Option(help="Actually post (needs approval + env flag)")] = False,
+    at: Annotated[str | None, typer.Option(help="Schedule, ISO local time")] = None,
+) -> None:
+    """Post an approved clip via Zernio (dry run unless --live). Submit on the campaign after."""
+    c = cfg()
+    with db_mod.session(c.paths.db) as conn:
+        out = clipping.publish_clip(conn, c, clip_id, platforms, live=live, scheduled_for=at)
+    typer.echo(json.dumps(out, indent=2))
+    if out["mode"] == "live":
+        typer.echo("Now submit each link on the campaign page within 30 minutes.")
+
+
+@clip_app.command("unsubmitted")
+def clip_unsubmitted() -> None:
+    """List posts still waiting to be submitted on their campaign."""
+    with db_mod.session(cfg().paths.db) as conn:
+        for r in clipping.unsubmitted(conn):
+            typer.echo(
+                f"post {r['id']} clip {r['clip_id']} {r['platform']} {r['url']} {r['created_at']}"
+            )
+
+
 @clip_app.command("views")
 def clip_views(
     post_id: int,

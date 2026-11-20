@@ -74,3 +74,14 @@ def test_plan_cuts_fast_and_varied() -> None:
     assert [s["id"] for s in slots[:4]] == [1, 2, 3, 1]  # type: ignore[index]
     assert offs[0] == 0 and offs[3] == 2.5  # second use of a clip starts later
     assert render.plan_cuts([], 10.0, 2.5) == ([None], 10.0, [0.0])
+
+
+def test_render_with_voice_file(
+    conn: sqlite3.Connection, cfg: config.Config, tmp_path: Path
+) -> None:
+    voice = tmp_path / "voice.mp3"
+    media.run(["-f", "lavfi", "-i", "sine=f=220:d=22", str(voice)])
+    sid = scripting.save(conn, scripting.Script.from_dict(NEWS_SCRIPT, "news", None))
+    res = render.render(conn, cfg, sid, voice_file=voice)
+    assert 22 < media.duration(res.path) < 23
+    assert res.tts_usd == 0.0

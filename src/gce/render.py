@@ -108,7 +108,11 @@ def plan_cuts(
 
 
 def render(
-    conn: sqlite3.Connection, cfg: Config, script_id: int, force: bool = False
+    conn: sqlite3.Connection,
+    cfg: Config,
+    script_id: int,
+    force: bool = False,
+    voice_file: Path | None = None,
 ) -> RenderResult:
     problems = scripting.check(conn, script_id)
     if problems and not force:
@@ -123,7 +127,13 @@ def render(
     work.mkdir(parents=True, exist_ok=True)
 
     narration = f"{script.voiceover} {script.cta}".strip()
-    audio_path, tts_usd = tts.synthesize(narration, work / "voice", cfg.tts, script.language)
+    if voice_file is not None:
+        # Pre-generated narration (e.g. a natural Higgsfield/ElevenLabs voice). It must read the
+        # script's voiceover + CTA; captions are timed against its length.
+        audio_path, tts_usd = work / "voice.wav", 0.0
+        media.run(["-i", str(voice_file), "-ac", "1", "-ar", "48000", str(audio_path)])
+    else:
+        audio_path, tts_usd = tts.synthesize(narration, work / "voice", cfg.tts, script.language)
     total = media.duration(audio_path) + 0.4  # small tail so the last caption can be read
     if total > cfg.render.max_duration_s and not force:
         raise ValueError(

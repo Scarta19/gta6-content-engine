@@ -298,11 +298,15 @@ def higgsfield_cmd(
 def render_cmd(
     script_id: int,
     force: Annotated[bool, typer.Option(help="Render even if checks fail (draft)")] = False,
+    voice_file: Annotated[
+        Path | None,
+        typer.Option(help="Use this pre-generated narration audio instead of the TTS provider"),
+    ] = None,
 ) -> None:
     """Render the 9:16 MP4 with voiceover and burned-in captions."""
     c = cfg()
     with db_mod.session(c.paths.db) as conn:
-        res = render.render(conn, c, script_id, force=force)
+        res = render.render(conn, c, script_id, force=force, voice_file=voice_file)
     typer.echo(
         f"render {res.render_id}: {res.path} ({res.duration_s:.1f}s, tts ${res.tts_usd:.4f})"
     )

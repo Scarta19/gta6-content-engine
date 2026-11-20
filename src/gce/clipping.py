@@ -429,12 +429,14 @@ def render_clip(conn: sqlite3.Connection, cfg: Config, clip_id: int) -> Path:
     subtitles.write_ass(cues, work / "captions.ass", rcfg, clip["hook"], [], length, False)
     w, h = rcfg.width, rcfg.height
     overlay = camp["overlay_path"]
-    # The campaign logo sits in the blurred band below the gameplay strip and captions, so
-    # it never covers the stream or the hook at the top: 70% of the frame width.
-    logo_w = int(w * 0.7) // 2 * 2
+    # The campaign logo sits in the blurred gap between the hook and the 16:9 gameplay strip:
+    # inside the TikTok/Reels safe zone (the bottom ~420px is covered by app UI) and never
+    # over the stream, the hook or the captions.
+    strip_top = (h - w * 9 // 16) // 2
+    logo_h = max(80, int(h * 0.078)) // 2 * 2
     branded = (
-        f"[base];[1:v]scale={logo_w}:-2,format=rgba[ov];"
-        "[base][ov]overlay=(W-w)/2:H-h-90:shortest=1,"
+        f"[base];[1:v]scale=-2:{logo_h},format=rgba[ov];"
+        f"[base][ov]overlay=(W-w)/2:{strip_top - logo_h - 12}:shortest=1,"
         if overlay
         else ","
     )

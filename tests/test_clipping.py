@@ -138,3 +138,17 @@ def test_publish_clip_via_zernio(
     assert out["mode"] == "live" and len(out["clip_posts"]) == 1
     pending = clipping.unsubmitted(conn)
     assert [r["url"] for r in pending] == ["zernio:" + "p" * 24]
+
+
+def test_clip_thumbnail(conn: sqlite3.Connection, cfg: config.Config, tmp_path: Path) -> None:
+    _, sid = _source(conn, tmp_path)
+    clip_id = clipping.save_clip(conn, sid, 3.0, 15.0, hook="He jumped?!", title="Insane jump")
+    png = tmp_path / "overlay.png"
+    media.run(
+        ["-f", "lavfi", "-i", "color=c=red@0.5:s=1080x200,format=rgba", "-frames:v", "1", str(png)]
+    )
+    clipping.set_overlay(conn, 1, png)
+    out = clipping.thumbnail(conn, cfg, clip_id, "He jumped the bridge 😭", at=4.0)
+    assert out.name == "cover.jpg" and out.stat().st_size > 10_000
+    with pytest.raises(ValueError):
+        clipping.thumbnail(conn, cfg, clip_id, "x", at=99.0)

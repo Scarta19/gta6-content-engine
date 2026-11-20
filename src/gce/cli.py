@@ -657,6 +657,18 @@ def clip_render(clip_id: int) -> None:
         typer.echo(str(clipping.render_clip(conn, c, clip_id)))
 
 
+@clip_app.command("thumbnail")
+def clip_thumbnail(
+    clip_id: int,
+    text: Annotated[str, typer.Option(help="Big cover text; must match what happens")],
+    at: Annotated[float | None, typer.Option(help="Seconds into the clip for the frame")] = None,
+) -> None:
+    """Make a vertical cover image (cover.jpg) from a real frame of the clip."""
+    c = cfg()
+    with db_mod.session(c.paths.db) as conn:
+        typer.echo(str(clipping.thumbnail(conn, c, clip_id, text, at)))
+
+
 @clip_app.command("review")
 def clip_review(
     clip_id: int,

@@ -497,6 +497,84 @@ def render_clip(conn: sqlite3.Connection, cfg: Config, clip_id: int) -> Path:
     return out
 
 
+def thumbnail(
+    conn: sqlite3.Connection, cfg: Config, clip_id: int, text: str, at: float | None = None
+) -> Path:
+    """Render a 1080x1920 cover (cover.jpg) from a real frame of the clip with big title text.
+
+    `at` is seconds into the clip (default: the middle). The frame is real stream footage and
+    the text must describe what actually happens in the clip, never a moment that isn't there.
+    """
+    media.require_libass()
+    clip = _clip(conn, clip_id)
+    src = _source(conn, clip["source_id"])
+    camp = conn.execute("SELECT * FROM campaigns WHERE id = ?", (src["campaign_id"],)).fetchone()
+    length = clip["end_s"] - clip["start_s"]
+    at = length / 2 if at is None else at
+    if not 0 <= at <= length:
+        raise ValueError(f"--at must be within the clip (0-{length:.1f}s)")
+    work = cfg.paths.work_dir / f"clip_{clip_id}"
+    work.mkdir(parents=True, exist_ok=True)
+    w, h = cfg.render.width, cfg.render.height
+    clean = " ".join(re.sub(r"[\U00010000-\U0010FFFF\u2600-\u27BF\uFE0F]", "", text).split())
+    size = int(cfg.render.font_size * 1.7)
+    ass = f"""[Script Info]
+ScriptType: v4.00+
+PlayResX: {w}
+PlayResY: {h}
+WrapStyle: 0
+ScaledBorderAndShadow: yes
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Cover,{cfg.render.font},{size},&H0000E5FF,&H000000FF,&H00000000,&H96000000,-1,0,0,0,100,100,0,0,1,11,5,8,60,60,150,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:00.00,0:00:05.00,Cover,,0,0,0,,{subtitles._ass_escape(clean.upper())}
+"""  # noqa: E501
+    (work / "cover.ass").write_text(ass, encoding="utf-8")
+    # Gameplay strip enlarged to 1.25x the frame width (cropped at the sides) so the moment
+    # reads at feed size; logo kept above the strip as in the clip.
+    strip_w = int(w * 1.25) // 2 * 2
+    strip_h = strip_w * 9 // 16 // 2 * 2
+    strip_top = (h - strip_h) // 2 + 140
+    overlay = camp["overlay_path"]
+    logo = (
+        f"[1:v]scale={int(w * 0.7) // 2 * 2}:-2,format=rgba[ov];"
+        f"[c][ov]overlay=(W-w)/2:{strip_top - 70}-h/2[c2];[c2]"
+        if overlay
+        else "[c]"
+    )
+    vf = (
+        f"[0:v]split[a][b];[a]scale={w}:{h}:force_original_aspect_ratio=increase,"
+        f"crop={w}:{h},boxblur=24:2,eq=brightness=-0.15[bg];"
+        f"[b]scale={strip_w}:{strip_h},crop={w}:{strip_h},eq=saturation=1.25:contrast=1.08[fg];"
+        f"[bg][fg]overlay=0:{strip_top}[c];{logo}ass=cover.ass,setsar=1[v]"
+    )
+    out = work / "cover.jpg"
+    media.run(
+        [
+            "-ss",
+            f"{clip['start_s'] + at:.3f}",
+            "-i",
+            src["path"],
+            *(["-i", overlay] if overlay else []),
+            "-filter_complex",
+            vf,
+            "-map",
+            "[v]",
+            "-frames:v",
+            "1",
+            "-q:v",
+            "2",
+            out.name,
+        ],
+        cwd=work,
+    )
+    return out
+
+
 def _clip(conn: sqlite3.Connection, clip_id: int) -> sqlite3.Row:
     row: sqlite3.Row | None = conn.execute(
         "SELECT * FROM clips WHERE id = ?", (clip_id,)

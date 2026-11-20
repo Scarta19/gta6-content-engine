@@ -122,13 +122,29 @@ NUMBER_WORDS = {
 }
 
 
+def _norm(word: str) -> str:
+    return re.sub(r"[^\w]", "", word.lower())
+
+
 def beat_starts(beats: list[str], cues: list[Cue]) -> list[float] | None:
     """Start time of each numbered beat card ("1. ...") at the cue that says that number."""
     out: list[float] = []
     for beat in beats:
         m = re.match(r"\s*#?(\d+)[.):]", beat)
         if not m or int(m.group(1)) not in NUMBER_WORDS:
-            out.append(out[-1] if out else 0.0)  # title card: show right after the hook
+            if not out:
+                out.append(0.0)  # title card: show right after the hook
+                continue
+            # Unnumbered card later on (e.g. the closing question): start where the voice
+            # says its first word, after the previous card.
+            first = _norm(beat.split()[0]) if beat.split() else ""
+            hit = next(
+                (c.start for c in cues if c.start > out[-1] and _norm(c.text.split()[0]) == first),
+                None,
+            )
+            if hit is None:
+                return None
+            out.append(hit)
             continue
         words = NUMBER_WORDS[int(m.group(1))]
         after = out[-1] if out else 0.0

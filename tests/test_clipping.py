@@ -156,3 +156,15 @@ def test_clip_thumbnail(conn: sqlite3.Connection, cfg: config.Config, tmp_path: 
     assert faced.stat().st_size > 10_000
     with pytest.raises(ValueError):
         clipping.thumbnail(conn, cfg, clip_id, "x", face=(0.9, 0, 0.3, 0.3))
+
+
+def test_campaign_credit_drawn_in_logo_slot(
+    conn: sqlite3.Connection, cfg: config.Config, tmp_path: Path
+) -> None:
+    _, sid = _source(conn, tmp_path)
+    conn.execute("UPDATE campaigns SET watermark = 'streamer on Kick' WHERE id = 1")
+    clip_id = clipping.save_clip(conn, sid, 3.0, 12.0, hook="No way", title="t")
+    out = clipping.render_clip(conn, cfg, clip_id)
+    credit = (out.parent / "credit.ass").read_text()
+    assert "streamer on Kick" in credit
+    assert "streamer on Kick" not in (out.parent / "captions.ass").read_text()

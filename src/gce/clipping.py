@@ -423,8 +423,11 @@ def render_clip(conn: sqlite3.Connection, cfg: Config, clip_id: int) -> Path:
     length = clip["end_s"] - clip["start_s"]
     work = cfg.paths.work_dir / f"clip_{clip_id}"
     work.mkdir(parents=True, exist_ok=True)
-    # Never brand campaign clips with the faceless channel's handle.
-    rcfg = dataclasses.replace(cfg.render, watermark=camp["watermark"])
+    # Never brand campaign clips with the faceless channel's handle. Without a logo overlay the
+    # campaign credit (e.g. "dasgasd3m on Kick") is drawn large in the logo slot instead of as
+    # a tiny corner watermark that the TikTok/Reels UI covers.
+    credit = (camp["watermark"] or "").strip() if not camp["overlay_path"] else ""
+    rcfg = dataclasses.replace(cfg.render, watermark="" if credit else camp["watermark"])
     cues = clip_cues(words, clip["start_s"], clip["end_s"], rcfg.max_words_per_caption)
     # Caption fonts have no emoji glyphs (they render as boxes); keep emoji for the post text.
     no_emoji = re.sub(r"[\U00010000-\U0010FFFF\u2600-\u27BF\uFE0F]", "", clip["hook"] or "")
@@ -445,6 +448,26 @@ def render_clip(conn: sqlite3.Connection, cfg: Config, clip_id: int) -> Path:
         if overlay
         else ","
     )
+    if credit:
+        size = int(rcfg.font_size * 0.85)
+        (work / "credit.ass").write_text(
+            f"""[Script Info]
+ScriptType: v4.00+
+PlayResX: {w}
+PlayResY: {h}
+ScaledBorderAndShadow: yes
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Credit,{rcfg.font},{size},&H00FFFFFF,&H000000FF,&H00000000,&H96000000,-1,0,0,0,100,100,0,0,1,6,2,8,60,60,{strip_top - size - 45},1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:00.00,{subtitles._ass_ts(length)},Credit,,0,0,0,,{subtitles._ass_escape(credit)}
+""",  # noqa: E501
+            encoding="utf-8",
+        )
+        branded += "ass=credit.ass,"
     vf = (
         f"[0:v]split[a][b];[a]scale={w}:{h}:force_original_aspect_ratio=increase,"
         f"crop={w}:{h},boxblur=24:2,eq=brightness=-0.08[bg];"

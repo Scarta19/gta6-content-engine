@@ -51,3 +51,29 @@ def test_scan_alerts_dedupe_and_close(conn: sqlite3.Connection) -> None:
 def test_score_prefers_open_gta_cpm() -> None:
     camps = {c.name: c for c in bounties.parse_discover(FIXTURE)}
     assert bounties.score(camps["KreekCraft GTA 6 Clipping"]) > bounties.score(camps["GTA 6"])
+
+
+def test_rate_ranges_blocklist_and_nested_groups() -> None:
+    import json as _json
+
+    leaf = {
+        "availableBudgetRaw": 500,
+        "id": "leaf-1",
+        "title": "$12,500 Streamer GTA VI Marathon Pool",
+        "type": "pool",
+        "poolCents": 1_250_000,
+    }
+    group = {"availableBudgetRaw": 0, "id": "group-1", "title": "GTA 6", "campaigns": [leaf]}
+    ranged = {
+        "availableBudgetRaw": 100,
+        "id": "r-1",
+        "title": "Gaming clips",
+        "type": "cpm",
+        "ratePer1kLabel": "$0.20–$1",
+    }
+    vice = {"availableBudgetRaw": 100, "id": "b-1", "title": "Puffco x Streamer", "type": "cpm"}
+    text = "".join(_json.dumps(o) for o in (group, ranged, vice))
+    camps = {c.url.rsplit("/", 1)[1]: c for c in bounties.parse_discover(text)}
+    assert "group-1" not in camps and camps["leaf-1"].name.startswith("$12,500")
+    assert camps["r-1"].rate_per_1k == 0.2
+    assert camps["b-1"].blocked and bounties.score(camps["b-1"]) == 0.0

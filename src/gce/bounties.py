@@ -66,6 +66,12 @@ GAMING_RE = re.compile(
     re.I,
 )
 GTA_RE = re.compile(r"\b(gta\s*(vi|6)|grand theft auto vi|vice city)\b", re.I)
+# Never recommended: cannabis/vape, gambling/betting, and loot-box style "pack opening" offers.
+BLOCK_RE = re.compile(
+    r"\b(cannabis|weed|thc|cbd|vape|puffco|dispensary|casino|gambl\w*|betting|sportsbook|"
+    r"1win|stake\.com|slots?|roulette|loot ?box(es)?|pack opening|case opening|\w*packs\b)",
+    re.I,
+)
 
 
 def ensure_schema(conn: sqlite3.Connection) -> None:
@@ -92,6 +98,7 @@ class Campaign:
     gta: bool = False
     requires_application: bool = False
     description: str = ""
+    blocked: bool = False
 
     def missing(self) -> list[str]:
         # min payout and min views aren't in the listing: they come from the campaign rules.
@@ -120,6 +127,12 @@ def _rsc_text(html: str) -> str:
     return "".join(out)
 
 
+def _rate(v: Any) -> float | None:
+    """Rate per 1K from labels like "$1", "$1.50" or a range "$0.20–$1" (lowest, conservative)."""
+    nums = re.findall(r"\d+(?:\.\d+)?", str(v or "").replace(",", ""))
+    return min(float(n) for n in nums) if nums else None
+
+
 def _num(v: Any) -> float | None:
     if v is None or v == "":
         return None
@@ -145,7 +158,7 @@ def campaign_from(obj: dict[str, Any], now_ms: float | None = None) -> Campaign:
         organizer=obj.get("brand") or obj.get("organizationProfileHandle") or None,
         status=status,
         kind=kind,
-        rate_per_1k=_num(obj.get("ratePer1kLabel")) if kind == "rate" else None,
+        rate_per_1k=_rate(obj.get("ratePer1kLabel")) if kind == "rate" else None,
         max_payout=cents / 100 if cents is not None else None,
         budget_used=_num(obj.get("budgetSpentRaw")),
         budget_total=_num(obj.get("budgetTotalRaw")),
@@ -158,6 +171,7 @@ def campaign_from(obj: dict[str, Any], now_ms: float | None = None) -> Campaign:
     hay = f"{c.name or ''} {c.organizer or ''} {obj.get('category') or ''} {c.description}"
     c.gaming = bool(GAMING_RE.search(hay))
     c.gta = bool(GTA_RE.search(hay))
+    c.blocked = bool(BLOCK_RE.search(hay))
     return c
 
 
@@ -169,13 +183,15 @@ def parse_discover(html: str, now_ms: float | None = None) -> list[Campaign]:
     i = text.find(MARKER)
     while i != -1:
         try:
-            obj, end = dec.raw_decode(text, i)
+            obj, _ = dec.raw_decode(text, i)
         except json.JSONDecodeError:
             i = text.find(MARKER, i + 1)
             continue
-        if isinstance(obj, dict) and obj.get("id"):
+        # A grouping object can wrap several campaigns; keep only leaf campaign objects and keep
+        # scanning inside it (i + 1), so nested campaigns aren't skipped or mislabeled.
+        if isinstance(obj, dict) and obj.get("id") and json.dumps(obj).count(MARKER[1:]) == 1:
             seen[str(obj["id"])] = campaign_from(obj, now_ms)
-        i = text.find(MARKER, end)
+        i = text.find(MARKER, i + 1)
     return list(seen.values())
 
 
@@ -188,6 +204,8 @@ def total_budget(c: Campaign) -> float | None:
 
 def score(c: Campaign) -> float:
     """0-100 heuristic for a beginner clipper. Unknown fields count as neither good nor bad."""
+    if c.blocked:
+        return 0.0
     s = 0.0
     if c.status == "accepting":
         s += 25
@@ -276,6 +294,8 @@ def upsert(
         if not already:
             alerts.append("big_pool")
     for kind in alerts:
+        if c.blocked:
+            continue  # stored for completeness, never alerted
         if kind == "new" and not c.gaming:
             continue  # only gaming campaigns raise "new" alerts; everything is still stored
         conn.execute(

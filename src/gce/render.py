@@ -26,7 +26,9 @@ def _cover_filter(w: int, h: int, fps: int) -> str:
     )
 
 
-def _segment(asset: sqlite3.Row | None, seconds: float, out: Path, cfg: Config) -> Path:
+def _segment(
+    asset: sqlite3.Row | None, seconds: float, out: Path, cfg: Config, offset: float = 0.0
+) -> Path:
     r = cfg.render
     w, h, fps = r.width, r.height, r.fps
     common = ["-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-r", str(fps)]
@@ -36,7 +38,9 @@ def _segment(asset: sqlite3.Row | None, seconds: float, out: Path, cfg: Config) 
                 "-f",
                 "lavfi",
                 "-i",
-                f"color=c={r.background_color}:s={w}x{h}:r={fps}",
+                # Animated, non-repeating gradient so the frame is never static.
+                f"gradients=s={w}x{h}:r={fps}:c0=0x1b1464:c1=0xff3d8b:c2=0x00c2ff:"
+                f"nb_colors=3:speed=0.008:d={seconds:.3f}",
                 "-t",
                 f"{seconds:.3f}",
                 *common,
@@ -66,10 +70,14 @@ def _segment(asset: sqlite3.Row | None, seconds: float, out: Path, cfg: Config) 
             ]
         )
     elif asset["kind"] == "video":
+        clip_len = media.duration(Path(asset["path"]))
+        offset = offset % clip_len if clip_len > seconds else 0.0
         media.run(
             [
                 "-stream_loop",
                 "-1",
+                "-ss",
+                f"{offset:.3f}",
                 "-i",
                 asset["path"],
                 "-vf",
@@ -85,8 +93,26 @@ def _segment(asset: sqlite3.Row | None, seconds: float, out: Path, cfg: Config) 
     return out
 
 
+def plan_cuts(
+    visuals: list[sqlite3.Row], total: float, scene_seconds: float
+) -> tuple[list[sqlite3.Row | None], float, list[float]]:
+    """Fast-cut plan: ~scene_seconds per shot, cycling visuals, each reuse starting later
+    in the clip so repeated sources show different moments."""
+    if not visuals:
+        return [None], total, [0.0]
+    n = max(len(visuals), round(total / max(scene_seconds, 0.5)))
+    seg_len = total / n
+    slots: list[sqlite3.Row | None] = [visuals[i % len(visuals)] for i in range(n)]
+    offsets = [(i // len(visuals)) * seg_len for i in range(n)]
+    return slots, seg_len, offsets
+
+
 def render(
-    conn: sqlite3.Connection, cfg: Config, script_id: int, force: bool = False
+    conn: sqlite3.Connection,
+    cfg: Config,
+    script_id: int,
+    force: bool = False,
+    voice_file: Path | None = None,
 ) -> RenderResult:
     problems = scripting.check(conn, script_id)
     if problems and not force:
@@ -94,13 +120,20 @@ def render(
             "script fails checks (use --force to render a draft anyway):\n- "
             + "\n- ".join(problems)
         )
+    media.require_libass()
     script = scripting.load(conn, script_id)
     visuals = [a for a in assets.for_script(conn, script_id) if a["kind"] in ("image", "video")]
     work = cfg.paths.work_dir / f"script_{script_id}"
     work.mkdir(parents=True, exist_ok=True)
 
     narration = f"{script.voiceover} {script.cta}".strip()
-    audio_path, tts_usd = tts.synthesize(narration, work / "voice", cfg.tts, script.language)
+    if voice_file is not None:
+        # Pre-generated narration (e.g. a natural Higgsfield/ElevenLabs voice). It must read the
+        # script's voiceover + CTA; captions are timed against its length.
+        audio_path, tts_usd = work / "voice.wav", 0.0
+        media.run(["-i", str(voice_file), "-ac", "1", "-ar", "48000", str(audio_path)])
+    else:
+        audio_path, tts_usd = tts.synthesize(narration, work / "voice", cfg.tts, script.language)
     total = media.duration(audio_path) + 0.4  # small tail so the last caption can be read
     if total > cfg.render.max_duration_s and not force:
         raise ValueError(
@@ -108,16 +141,29 @@ def render(
             "(Facebook Reels max 60s). Shorten the script."
         )
 
-    cues = subtitles.time_cues(narration, total - 0.4, cfg.render.max_words_per_caption)
+    speech = total - 0.4
+    pauses = media.silences(audio_path) if cfg.tts.provider != "silent" or voice_file else []
+    cues = subtitles.align_cues(narration, speech, cfg.render.max_words_per_caption, pauses)
     srt = subtitles.write_srt(cues, work / "captions.srt")
-    ai_label = script.ai_generated or any(a["ai_generated"] for a in visuals)
+    ai_label = cfg.render.show_ai_label and (
+        script.ai_generated or any(a["ai_generated"] for a in visuals)
+    )
     subtitles.write_ass(
-        cues, work / "captions.ass", cfg.render, script.hook, script.on_screen, total, ai_label
+        cues,
+        work / "captions.ass",
+        cfg.render,
+        script.hook,
+        script.on_screen,
+        total,
+        ai_label,
+        subtitles.beat_starts(script.on_screen, cues),
     )
 
-    slots: list[sqlite3.Row | None] = list(visuals) or [None]
-    seg_len = total / len(slots)
-    seg_paths = [_segment(a, seg_len, work / f"seg_{i:02}.mp4", cfg) for i, a in enumerate(slots)]
+    slots, seg_len, offsets = plan_cuts(list(visuals), total, cfg.render.scene_seconds)
+    seg_paths = [
+        _segment(a, seg_len, work / f"seg_{i:02}.mp4", cfg, off)
+        for i, (a, off) in enumerate(zip(slots, offsets, strict=True))
+    ]
     concat_list = work / "segments.txt"
     concat_list.write_text("".join(f"file '{p.name}'\n" for p in seg_paths), encoding="utf-8")
     media.run(
@@ -132,7 +178,9 @@ def render(
             "-i",
             audio_path.name,
             "-vf",
-            "ass=captions.ass",
+            # Captions, then a thin progress bar (a proven retention cue on Shorts/Reels).
+            f"ass=captions.ass,drawbox=x=0:y=ih-14:w=iw*t/{total:.3f}:h=14:"
+            "color=0xFFE500@0.95:t=fill",
             "-map",
             "0:v",
             "-map",

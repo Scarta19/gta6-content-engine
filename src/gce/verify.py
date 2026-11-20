@@ -166,7 +166,7 @@ def run(conn: sqlite3.Connection) -> list[dict[str, object]]:
 
 def sources_for(conn: sqlite3.Connection, story_id: int) -> list[sqlite3.Row]:
     return conn.execute(
-        "SELECT title, url, domain, tier, published_at FROM items WHERE story_id = ?"
+        "SELECT title, url, domain, tier, published_at, body FROM items WHERE story_id = ?"
         " ORDER BY CASE tier WHEN 'official' THEN 0 WHEN 'reputable' THEN 1 ELSE 2 END",
         (story_id,),
     ).fetchall()

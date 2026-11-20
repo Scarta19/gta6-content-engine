@@ -151,10 +151,16 @@ def connect(path: Path) -> sqlite3.Connection:
     conn.execute("PRAGMA foreign_keys = ON")
     conn.executescript(SCHEMA)
     _migrate(conn)
+    from gce import trends  # local import avoids a cycle
+
+    trends.ensure_schema(conn)
     return conn
 
 
-MIGRATIONS = (("scripts", "language", "TEXT NOT NULL DEFAULT 'en'"),)
+MIGRATIONS = (
+    ("scripts", "language", "TEXT NOT NULL DEFAULT 'en'"),
+    ("items", "body", "TEXT NOT NULL DEFAULT ''"),  # article text excerpt, for fact grounding
+)
 
 
 def _migrate(conn: sqlite3.Connection) -> None:

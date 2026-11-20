@@ -17,8 +17,9 @@ provenance, renders, approvals, publications, metrics and costs.
 Requirements: Python 3.12, [uv](https://docs.astral.sh/uv/), FFmpeg with libass.
 
 ```bash
-# macOS
-brew install uv ffmpeg
+# macOS: plain `ffmpeg` lacks libass (captions); use ffmpeg-full
+brew install uv ffmpeg-full
+export PATH="/opt/homebrew/opt/ffmpeg-full/bin:$PATH"   # add to ~/.zshrc
 # Ubuntu/Debian
 sudo apt-get install -y ffmpeg && curl -LsSf https://astral.sh/uv/install.sh | sh
 
@@ -92,6 +93,20 @@ uv run gce asset attach 1 1 && uv run gce render 1
 | Quality gates must pass before a human can approve (see below) | `gates.run`, `review.decide` |
 | Higgsfield is dry-run unless `higgsfield.enabled = true` and `--live` | `higgsfield.Client` |
 
+### Learning from viral channels (`gce trends`)
+
+```bash
+uv run gce trends pull       # recent uploads + stats of [trends].channels (YouTube Data API)
+uv run gce trends top        # Shorts ranked by outlier score (views/hour vs. channel median)
+uv run gce trends signals    # which hook formats and topics over-perform
+uv run gce script new curiosity --lang es --from-trend <video id> --source https://...
+```
+
+Only public metadata is read (title, publish time, views, likes, comments, duration), at
+1 quota unit per call. `--from-trend` passes the format and topic as a signal, tells the
+model never to reuse wording, footage or unconfirmed claims, and logs the source video as an
+inspiration. Needs `YOUTUBE_API_KEY` (Google Cloud console, enable YouTube Data API v3).
+
 ### Inspiration vs. copying
 
 Third-party videos can inspire topics, formats and pacing. Log them with
@@ -105,7 +120,7 @@ never used: the rights gate blocks any asset whose source matches a logged inspi
    `allow_rockstar_assets = true` after legal review; AI visuals disclosed in the caption;
    after `launch_date`, spoiler terms need a "spoiler" warning in the hook or caption;
    kid-directed wording is always blocked (GTA VI is rated M 17+, the audience is adults).
-3. **Virality pre-check**: hook of 12 words or fewer on screen at 0.0 s, 30 to 58 s,
+3. **Virality pre-check**: hook of 12 words or fewer on screen at 0.0 s, 20 to 58 s,
    burned-in captions, one clear CTA, and a hook score (heuristic by default; `--llm` asks
    the model for a 0-10 score plus two alternative hooks, with cost tracked).
    Set `min_hook_score` to make the score blocking once we have performance data.

@@ -18,6 +18,7 @@ from gce import (
     render,
     review,
     scripting,
+    trends,
     verify,
 )
 from gce import config as config_mod
@@ -28,6 +29,8 @@ app = typer.Typer(no_args_is_help=True, help="GTA VI content engine.")
 script_app = typer.Typer(no_args_is_help=True, help="Create, import and check scripts.")
 asset_app = typer.Typer(no_args_is_help=True, help="Register media with provenance.")
 metrics_app = typer.Typer(no_args_is_help=True, help="Capture performance metrics.")
+trends_app = typer.Typer(no_args_is_help=True, help="Learn topics/formats from viral channels.")
+app.add_typer(trends_app, name="trends")
 app.add_typer(script_app, name="script")
 app.add_typer(asset_app, name="asset")
 app.add_typer(metrics_app, name="metrics")
@@ -76,11 +79,17 @@ def init() -> None:
 
 
 @app.command()
-def discover() -> None:
+def discover(
+    bodies: Annotated[
+        int, typer.Option(help="Also fetch article text for up to N official/reputable items")
+    ] = 0,
+) -> None:
     """Fetch feeds, then cluster and grade new items into stories."""
     c = cfg()
     with db_mod.session(c.paths.db) as conn:
         echo_json(discovery.run(conn, c.discovery, c.verification))
+        if bodies:
+            echo_json({"article_text": discovery.fetch_bodies(conn, bodies)})
         new = verify.run(conn)
         typer.echo(f"{len(new)} new stories")
     stories()
@@ -134,6 +143,15 @@ def script_new(
     source: Annotated[
         list[str] | None, typer.Option(help="Citable source URL (repeatable)")
     ] = None,
+    from_trend: Annotated[
+        str | None, typer.Option(help="Trend video id: use its topic/format as a signal")
+    ] = None,
+    research: Annotated[
+        str,
+        typer.Option(
+            help="Pull citable articles whose text matches these words (gce discover --bodies)"
+        ),
+    ] = "",
 ) -> None:
     """Generate a script with the LLM (costs API tokens)."""
     if fmt not in scripting.FORMATS:
@@ -142,9 +160,31 @@ def script_new(
         raise typer.BadParameter(f"lang must be one of {list(scripting.LANGUAGES)}")
     c = cfg()
     with db_mod.session(c.paths.db) as conn:
+        trend = None
+        if from_trend:
+            trend = conn.execute(
+                "SELECT * FROM trend_videos WHERE video_id = ?", (from_trend,)
+            ).fetchone()
+            if trend is None:
+                raise typer.BadParameter(f"trend video {from_trend} not found; run gce trends pull")
+            pats = ", ".join(trends.patterns_of(trend["title"])) or "none detected"
+            topic = (
+                f"{topic} Make an ORIGINAL video on a related topic. A viral video titled "
+                f"{trend['title']!r} used these hook formats: {pats}. Use the format idea, "
+                "never its wording, footage or specific claims unless our sources confirm them."
+            ).strip()
         script_id, problems = scripting.generate(
-            conn, c.llm, fmt, story, language=lang, topic=topic, extra_sources=source
+            conn,
+            c.llm,
+            fmt,
+            story,
+            language=lang,
+            topic=topic,
+            extra_sources=source,
+            research=research,
         )
+        if trend is not None:
+            trends.log_inspiration(conn, script_id, trend)
         typer.echo(scripting.to_json(scripting.load(conn, script_id)))
     _report_problems(script_id, problems)
 
@@ -277,11 +317,15 @@ def higgsfield_cmd(
 def render_cmd(
     script_id: int,
     force: Annotated[bool, typer.Option(help="Render even if checks fail (draft)")] = False,
+    voice_file: Annotated[
+        Path | None,
+        typer.Option(help="Use this pre-generated narration audio instead of the TTS provider"),
+    ] = None,
 ) -> None:
     """Render the 9:16 MP4 with voiceover and burned-in captions."""
     c = cfg()
     with db_mod.session(c.paths.db) as conn:
-        res = render.render(conn, c, script_id, force=force)
+        res = render.render(conn, c, script_id, force=force, voice_file=voice_file)
     typer.echo(
         f"render {res.render_id}: {res.path} ({res.duration_s:.1f}s, tts ${res.tts_usd:.4f})"
     )
@@ -382,6 +426,47 @@ def record_post(render_id: int, platform: str, external_id: str) -> None:
 def zernio_accounts() -> None:
     """List connected Zernio accounts (read-only; needs ZERNIO_API_KEY)."""
     echo_json(zernio_mod.Client(cfg().zernio).accounts())
+
+
+# --- trends ---
+
+
+@trends_app.command("pull")
+def trends_pull() -> None:
+    """Fetch recent uploads + stats for the configured channels (YouTube Data API)."""
+    c = cfg()
+    with db_mod.session(c.paths.db) as conn:
+        echo_json(trends.pull(conn, c.trends.channels, c.trends.videos_per_channel))
+
+
+@trends_app.command("top")
+def trends_top(limit: int = 20, days: int | None = None) -> None:
+    """Shorts ranked by outlier score (views/hour vs. their channel's median)."""
+    c = cfg()
+    with db_mod.session(c.paths.db) as conn:
+        rows = trends.ranked(conn, days or c.trends.lookback_days)[:limit]
+    table(
+        [
+            {
+                "id": r["video_id"],
+                "outlier": r["outlier"],
+                "vph": r["vph"],
+                "views": r["views"],
+                "channel": r["channel_title"][:18],
+                "patterns": ",".join(r["patterns"]),
+                "title": r["title"][:60],
+            }
+            for r in rows
+        ]
+    )
+
+
+@trends_app.command("signals")
+def trends_signals(days: int | None = None) -> None:
+    """Which hook formats and topics over-perform right now."""
+    c = cfg()
+    with db_mod.session(c.paths.db) as conn:
+        echo_json(trends.signals(trends.ranked(conn, days or c.trends.lookback_days)))
 
 
 # --- metrics -------------------------------------------------------------------------------

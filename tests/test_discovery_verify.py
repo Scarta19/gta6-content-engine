@@ -59,3 +59,22 @@ def test_status_rules() -> None:
     assert verify.status_for(1, 0) == "confirmed"
     assert verify.status_for(0, 2) == "corroborated"
     assert verify.status_for(0, 1) == "unverified"
+
+
+def test_extract_text_and_research(conn: sqlite3.Connection) -> None:
+    from gce import discovery as d
+
+    html = (
+        "<html><nav><p>Menu menu menu menu menu menu menu menu menu</p></nav>"
+        "<p>The map includes a swamp region with airboats you can drive at night.</p>"
+        "<script>var x=1</script><p>short</p></html>"
+    )
+    text = d.extract_text(html)
+    assert "swamp region" in text and "Menu" not in text and "short" not in text
+    conn.execute(
+        "INSERT INTO items (url, title, domain, feed, fetched_at, tier, body)"
+        " VALUES ('https://ign.com/a', 'GTA VI details', 'ign.com', 'f', 'now', 'reputable', ?)",
+        (text,),
+    )
+    assert [r["url"] for r in d.research(conn, "swamp airboats")] == ["https://ign.com/a"]
+    assert d.research(conn, "helicopter") == []

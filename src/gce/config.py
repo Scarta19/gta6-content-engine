@@ -35,7 +35,7 @@ class VerificationCfg:
 class LlmCfg:
     provider: str = "anthropic"
     model: str = "claude-sonnet-5-5"
-    max_tokens: int = 2000
+    max_tokens: int = 4000
     input_usd_per_mtok: float = 3.0
     output_usd_per_mtok: float = 15.0
 
@@ -43,7 +43,9 @@ class LlmCfg:
 @dataclass(frozen=True)
 class TtsCfg:
     provider: str = "silent"
-    words_per_minute: int = 165
+    words_per_minute: int = 190
+    say_rate: int = 215  # macOS `say` words per minute (default voice speed is ~175)
+    openai_speed: float = 1.15
     piper_model: str = ""
     openai_model: str = "gpt-4o-mini-tts"
     openai_voice: str = "onyx"
@@ -62,9 +64,14 @@ class RenderCfg:
     height: int = 1920
     fps: int = 30
     font: str = "DejaVu Sans"
-    font_size: int = 64
+    font_size: int = 76
     max_words_per_caption: int = 4
-    ai_label_text: str = "AI-GENERATED CONCEPT - NOT REAL GAMEPLAY"
+    ai_label_text: str = "AI-GENERATED VISUALS - NOT REAL GAMEPLAY"
+    # On-screen AI overlay is optional; the platform AI/synthetic-content flags are always set
+    # at publish time (YouTube containsSyntheticMedia, --ai-disclosure-confirmed gate).
+    show_ai_label: bool = False
+    scene_seconds: float = 2.5  # target shot length; viral Shorts cut every 2-3 s
+    watermark: str = "@secretmapclub"  # brand handle shown small on every video; "" to hide
     background_color: str = "0x101418"
     max_duration_s: float = 58.0  # Facebook Reels cap is 60 s
 
@@ -92,10 +99,18 @@ class GatesCfg:
     spoiler_terms: list[str] = field(
         default_factory=lambda: ["ending", "final mission", "plot twist", "betrayal"]
     )
-    min_duration_s: float = 30.0
+    min_duration_s: float = 20.0
     max_duration_s: float = 58.0
     allow_rockstar_assets: bool = False
     min_hook_score: float = 0.0
+    require_caption_ai_disclosure: bool = False
+
+
+@dataclass(frozen=True)
+class TrendsCfg:
+    channels: list[str] = field(default_factory=list)
+    videos_per_channel: int = 20
+    lookback_days: int = 14
 
 
 @dataclass(frozen=True)
@@ -115,6 +130,7 @@ class Config:
     zernio: ZernioCfg
     costs: CostsCfg
     gates: GatesCfg = field(default_factory=GatesCfg)
+    trends: TrendsCfg = field(default_factory=TrendsCfg)
     source: Path | None = None
 
 
@@ -151,6 +167,7 @@ def from_dict(raw: dict[str, Any], source: Path | None = None) -> Config:
         zernio=ZernioCfg(**_section(raw, "zernio")),
         costs=CostsCfg(**_section(raw, "costs")),
         gates=GatesCfg(**_section(raw, "gates")),
+        trends=TrendsCfg(**_section(raw, "trends")),
         source=source,
     )
 

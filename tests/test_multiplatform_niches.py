@@ -126,3 +126,8 @@ def test_migration_adds_language_column(tmp_path: Path) -> None:
     conn = db.connect(path)
     cols = {r[1] for r in conn.execute("PRAGMA table_info(scripts)")}
     assert "language" in cols
+
+
+def test_plural_ai_disclosure_in_spanish_and_portuguese() -> None:
+    assert scripting.AI_DISCLOSURE_RE.search("Visuales generados con IA")
+    assert scripting.AI_DISCLOSURE_RE.search("Imagens geradas por IA")

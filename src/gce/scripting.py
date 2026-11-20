@@ -23,8 +23,8 @@ LANGUAGES = {
 }
 AI_DISCLOSURE_RE = re.compile(
     r"\b(ai[- ]generated|ai concept|made with ai|fan concept|"
-    r"generad[oa] (con|por) ia|hech[oa] con ia|concepto (de )?ia|"
-    r"gerad[oa] (com|por) ia|feito com ia|"
+    r"generad[oa]s? (con|por) ia|hech[oa]s? con ia|concepto (de )?ia|"
+    r"gerad[oa]s? (com|por) ia|feit[oa]s? com ia|"
     r"g[ée]n[ée]r[ée]e? par (l'|l’)?ia|cr[ée][ée]e? avec (l'|l’)?ia)\b",
     re.I,
 )
@@ -42,7 +42,8 @@ Hard rules:
 - CONFIRMED stories may be stated as fact and attributed to Rockstar.
 - CORROBORATED stories must be attributed ("Bloomberg reports...").
 - UNVERIFIED material may only appear as clearly labeled speculation or rumor.
-- Concept videos are original AI-generated visuals: say so in the voiceover and caption.
+- Concept videos are original AI-generated visuals: never claim they are real gameplay, footage
+  or a leak (the platform AI-content label is applied at publish).
 - Audience: adults 18-34. Never address kids or use kid-directed wording.
 - Faceless channel: narration over visuals, no presenter.
 - Third-party creators may inspire the topic or format, never copy their wording or footage.
@@ -51,7 +52,7 @@ Hard rules:
 
 Return ONLY a JSON object with keys:
 title, hook, voiceover, on_screen (array of short text beats), cta, caption,
-hashtags (array, max 5), visual_plan, claims (array of {claim, source_url, status}),
+hashtags (array, max 5), visual_plan, claims (array of {claim, source_id, status}),
 rights_notes."""
 
 FORMAT_BRIEFS = {
@@ -134,6 +135,15 @@ def extract_json(text: str) -> dict[str, Any]:
     return data
 
 
+def resolve_source_ids(data: dict[str, Any], id_to_url: dict[str, str]) -> dict[str, Any]:
+    """Replace claims[].source_id (S1, S2...) with the real URL. Unknown ids stay visible."""
+    for claim in data.get("claims", []):
+        if isinstance(claim, dict) and "source_id" in claim and not claim.get("source_url"):
+            sid = str(claim.pop("source_id")).strip().strip("[]")
+            claim["source_url"] = id_to_url.get(sid, f"unknown-source:{sid}")
+    return data
+
+
 def validate(script: Script, story_status: str | None, source_urls: set[str]) -> list[str]:
     """Return a list of problems. Empty list means the script passes automated checks."""
     problems: list[str] = []
@@ -160,10 +170,6 @@ def validate(script: Script, story_status: str | None, source_urls: set[str]) ->
             problems.append("unverified claim used without calling it a rumor/theory in voiceover")
     if story_status != "confirmed" and HYPE_WITHOUT_PROOF.search(script.voiceover):
         problems.append("voiceover says 'confirmed'/'leak confirms' but the story is not confirmed")
-    if script.ai_generated and not (
-        AI_DISCLOSURE_RE.search(script.voiceover) and AI_DISCLOSURE_RE.search(script.caption)
-    ):
-        problems.append("concept videos must disclose AI generation in voiceover and caption")
     return problems
 
 
@@ -183,9 +189,13 @@ def build_prompt(
         lines += [f"- {i}" for i in inspirations]
     if story is not None:
         lines += [f"Story: {story['title']}", f"Verification status: {story['status'].upper()}"]
-    lines.append("Sources (tier, url, headline):")
-    for s in sources:
-        lines.append(f"- [{s['tier']}] {s['url']} :: {s['title']}")
+    lines.append("Sources (cite by id in claims[].source_id, never paste URLs):")
+    for i, s in enumerate(sources, 1):
+        lines.append(f"- S{i} [{s['tier']}] {s['domain']} :: {s['title']}")
+        body = s["body"] if "body" in s.keys() else ""  # noqa: SIM118 (sqlite3.Row)
+        if body:
+            excerpt = " ".join(body.split())[:1500]
+            lines.append(f"  S{i} excerpt (paraphrase, never quote at length): {excerpt}")
     if not sources:
         lines.append("- none (concept only: do not make factual claims)")
     return "\n".join(lines)
@@ -199,6 +209,7 @@ def generate(
     language: str = "en",
     topic: str = "",
     extra_sources: list[str] | None = None,
+    research: str = "",
 ) -> tuple[int, list[str]]:
     """extra_sources: URLs the writer may cite (e.g. a reputable guide or our own capture)."""
     story = None
@@ -208,11 +219,21 @@ def generate(
         if story is None:
             raise ValueError(f"story {story_id} not found")
         sources = verify.sources_for(conn, story_id)
+    if research:
+        from gce import discovery
+
+        seen = {s["url"] for s in sources}
+        sources += [r for r in discovery.research(conn, research) if r["url"] not in seen]
     prompt = build_prompt(fmt, story, sources, language, topic)
+    id_to_url = {f"S{i}": str(s["url"]) for i, s in enumerate(sources, 1)}
     if extra_sources:
-        prompt += "\nAdditional citable sources:\n" + "\n".join(f"- {u}" for u in extra_sources)
+        prompt += "\nAdditional citable sources:\n"
+        for j, url in enumerate(extra_sources, len(sources) + 1):
+            id_to_url[f"S{j}"] = url
+            prompt += f"- S{j} {url}\n"
     result = complete(cfg, SYSTEM_PROMPT, prompt)
-    script = Script.from_dict(extract_json(result.text), fmt, story_id, language)
+    data = resolve_source_ids(extract_json(result.text), id_to_url)
+    script = Script.from_dict(data, fmt, story_id, language)
     script_id = save(conn, script, model=cfg.model)
     db.record_cost(
         conn,
@@ -285,6 +306,20 @@ def check(conn: sqlite3.Connection, script_id: int) -> list[str]:
         ).fetchone()
         status = story["status"] if story else None
         urls = {r["url"] for r in verify.sources_for(conn, script.story_id)}
+        # --research sources: any discovered official/reputable item is citable.
+        cited = [c.get("source_url", "") for c in script.claims]
+        urls |= (
+            {
+                r["url"]
+                for r in conn.execute(
+                    "SELECT url FROM items WHERE tier IN ('official', 'reputable') AND url IN"
+                    f" ({','.join('?' * len(cited))})",
+                    cited,
+                )
+            }
+            if cited
+            else set()
+        )
     else:
         # Hand-written scripts without a story: verification status comes from their claims.
         statuses = {c.get("status", "unverified") for c in script.claims}

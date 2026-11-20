@@ -38,16 +38,10 @@ def test_blocks_false_confirmation_language() -> None:
     assert any("not confirmed" in p for p in scripting.validate(s, "corroborated", URLS))
 
 
-def test_concept_requires_ai_disclosure() -> None:
+def test_concept_needs_no_on_screen_disclosure() -> None:
+    # Disclosure moved to the platform AI flags set at publish time.
     s = make("concept", claims=[])
-    assert any("disclose" in p for p in scripting.validate(s, None, set()))
-    ok = make(
-        "concept",
-        claims=[],
-        voiceover="This is an AI-generated concept. " + NEWS_SCRIPT["voiceover"],
-        caption="AI-generated fan concept, not real gameplay.",
-    )
-    assert scripting.validate(ok, None, set()) == []
+    assert scripting.validate(s, None, set()) == []
 
 
 def test_extract_json_from_chatty_reply() -> None:
@@ -67,3 +61,17 @@ def test_save_load_roundtrip(conn: sqlite3.Connection) -> None:
     assert loaded.claims == NEWS_SCRIPT["claims"]
     assert loaded.hashtags == ["gta6", "gtavi", "rockstargames"]
     assert scripting.check(conn, sid) == []  # standalone script: claims all confirmed
+
+
+def test_source_ids_resolve_to_urls() -> None:
+    data = {
+        "claims": [
+            {"claim": "a", "source_id": "S1", "status": "confirmed"},
+            {"claim": "b", "source_id": "[S9]", "status": "confirmed"},
+            {"claim": "c", "source_url": "https://x.test", "status": "confirmed"},
+        ]
+    }
+    out = scripting.resolve_source_ids(data, {"S1": "https://rockstargames.com/n/1"})
+    urls = [c["source_url"] for c in out["claims"]]
+    assert urls == ["https://rockstargames.com/n/1", "unknown-source:S9", "https://x.test"]
+    assert all("source_id" not in c for c in out["claims"])

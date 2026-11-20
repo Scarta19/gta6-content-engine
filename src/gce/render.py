@@ -141,13 +141,22 @@ def render(
             "(Facebook Reels max 60s). Shorten the script."
         )
 
-    cues = subtitles.time_cues(narration, total - 0.4, cfg.render.max_words_per_caption)
+    speech = total - 0.4
+    pauses = media.silences(audio_path) if cfg.tts.provider != "silent" or voice_file else []
+    cues = subtitles.align_cues(narration, speech, cfg.render.max_words_per_caption, pauses)
     srt = subtitles.write_srt(cues, work / "captions.srt")
     ai_label = cfg.render.show_ai_label and (
         script.ai_generated or any(a["ai_generated"] for a in visuals)
     )
     subtitles.write_ass(
-        cues, work / "captions.ass", cfg.render, script.hook, script.on_screen, total, ai_label
+        cues,
+        work / "captions.ass",
+        cfg.render,
+        script.hook,
+        script.on_screen,
+        total,
+        ai_label,
+        subtitles.beat_starts(script.on_screen, cues),
     )
 
     slots, seg_len, offsets = plan_cuts(list(visuals), total, cfg.render.scene_seconds)

@@ -79,3 +79,33 @@ def has_audio(path: Path) -> bool:
         check=False,
     )
     return bool(proc.stdout.strip())
+
+
+def silences(path: Path, min_s: float = 0.2, noise_db: int = -35) -> list[tuple[float, float]]:
+    """Pauses in an audio file as (start, end) seconds, via FFmpeg silencedetect."""
+    proc = subprocess.run(
+        [
+            require("ffmpeg"),
+            "-hide_banner",
+            "-i",
+            str(path),
+            "-af",
+            f"silencedetect=noise={noise_db}dB:d={min_s}",
+            "-f",
+            "null",
+            "-",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    out: list[tuple[float, float]] = []
+    start: float | None = None
+    for line in proc.stderr.splitlines():
+        if "silence_start:" in line:
+            start = float(line.rsplit("silence_start:", 1)[1].split()[0])
+        elif "silence_end:" in line and start is not None:
+            end = float(line.rsplit("silence_end:", 1)[1].split()[0])
+            out.append((max(0.0, start), end))
+            start = None
+    return out

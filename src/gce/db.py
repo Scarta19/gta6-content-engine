@@ -151,7 +151,9 @@ def connect(path: Path) -> sqlite3.Connection:
     conn.execute("PRAGMA foreign_keys = ON")
     conn.executescript(SCHEMA)
     _migrate(conn)
-    from gce import clipping, trends  # local import avoids a cycle
+    from gce import bounties, clipping, trends  # local import avoids a cycle
+
+    bounties.ensure_schema(conn)
 
     trends.ensure_schema(conn)
     clipping.ensure_schema(conn)

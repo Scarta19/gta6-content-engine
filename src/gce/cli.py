@@ -11,6 +11,7 @@ import typer
 from gce import (
     analytics,
     assets,
+    bounties,
     clipping,
     discovery,
     gates,
@@ -40,6 +41,8 @@ clip_app = typer.Typer(
     help="Clipping mode for paid clip campaigns (Content Rewards): authorized footage only.",
 )
 app.add_typer(clip_app, name="clip")
+bounty_app = typer.Typer(no_args_is_help=True, help="Watch clipping platforms for campaigns.")
+app.add_typer(bounty_app, name="bounties")
 
 _state: dict[str, Any] = {}
 
@@ -699,3 +702,47 @@ def clip_report() -> None:
     """Views and estimated payouts per campaign (after the platform fee)."""
     with db_mod.session(cfg().paths.db) as conn:
         echo_json(clipping.report(conn))
+
+
+# --- bounty intelligence ---------------------------------------------------------------------
+
+
+@bounty_app.command("scan")
+def bounties_scan(
+    big_pool: Annotated[float, typer.Option(help="Alert threshold for budget/pool, USD")] = 10_000,
+    alerts_file: Annotated[
+        Path | None, typer.Option(help="Write unsent alerts here (markdown) and mark them sent")
+    ] = None,
+) -> None:
+    """One monitoring pass (run hourly). Never registers or submits anything."""
+    with db_mod.session(cfg().paths.db) as conn:
+        echo_json(bounties.scan(conn, big_pool_usd=big_pool))
+        rows = bounties.pending_alerts(conn)
+        text = "\n\n".join(bounties.format_alert(r) for r in rows)
+        if text:
+            typer.echo(text)
+        if alerts_file is not None:
+            alerts_file.write_text(text, encoding="utf-8")
+            bounties.mark_sent(conn, [r["id"] for r in rows])
+
+
+@bounty_app.command("top")
+def bounties_top(limit: int = 15, all_niches: bool = False) -> None:
+    """Best open campaigns by score (gaming only unless --all-niches)."""
+    with db_mod.session(cfg().paths.db) as conn:
+        table(
+            [
+                {
+                    "score": r["score"],
+                    "name": (r["name"] or "")[:40],
+                    "type": r["kind"],
+                    "rate": r["rate_per_1k"],
+                    "max": r["max_payout"],
+                    "budget": r["budget_total"] or r["pool_usd"],
+                    "spent": r["budget_used"],
+                    "creators": r["creators"],
+                    "url": r["url"],
+                }
+                for r in bounties.top(conn, limit, gaming_only=not all_niches)
+            ]
+        )

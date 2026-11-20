@@ -213,3 +213,14 @@ gce clip views 1 42000 && gce clip report                      # est. payout aft
 Submission stays manual: Content Rewards' documented flow is pasting the posted video's link
 on the campaign page. Whop's public bounty-submission API needs a user OAuth token and isn't
 documented as the Content Rewards flow, so the engine doesn't call it.
+
+## Bounty intelligence (campaign monitor)
+
+`gce bounties scan` reads Content Rewards' public discover listings (robots.txt allows `/c/`),
+stores every campaign, and raises alerts for **new gaming campaigns** and **budgets/pools ≥ $10k**.
+Fields the listing doesn't show (min payout, min views, geo, AI rules) stay `unknown`.
+`gce bounties top` ranks open gaming campaigns by a beginner-friendliness score.
+
+`.github/workflows/bounty-monitor.yml` runs the scan hourly on GitHub Actions (free) and opens
+an issue when there are alerts. It never joins, applies, submits or posts. X (Twitter) isn't
+polled: its API is paid per read and scraping X breaks its terms.

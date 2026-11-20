@@ -525,7 +525,9 @@ def report_cmd() -> None:
 @clip_app.command("campaign-add")
 def clip_campaign_add(
     name: str,
-    rate: Annotated[float, typer.Option(help="USD per 1,000 views")],
+    rate: Annotated[float, typer.Option(help="USD per 1,000 views (rate campaigns)")] = 0.0,
+    pool: Annotated[float, typer.Option(help="Prize pool in USD split by views")] = 0.0,
+    min_views: Annotated[int, typer.Option(help="Views a post needs to count")] = 0,
     url: Annotated[str, typer.Option(help="Campaign page URL")] = "",
     min_payout: Annotated[float, typer.Option(help="Min USD before a post pays")] = 0.0,
     max_payout: Annotated[float, typer.Option(help="Per-post cap in USD (0 = none)")] = 0.0,
@@ -549,6 +551,8 @@ def clip_campaign_add(
             rules=rules,
             required_text=required_text,
             watermark=watermark,
+            pool_usd=pool,
+            min_views=min_views,
         )
     typer.echo(f"campaign {cid}: {name}")
 

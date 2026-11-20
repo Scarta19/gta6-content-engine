@@ -80,8 +80,20 @@ MIN_CLIP_S = 8.0
 MAX_CLIP_S = 90.0
 
 
+# Columns added after the first release of clipping mode.
+COLUMNS = (
+    ("campaigns", "kind", "TEXT NOT NULL DEFAULT 'rate'"),  # rate | pool
+    ("campaigns", "pool_usd", "REAL NOT NULL DEFAULT 0"),
+    ("campaigns", "min_views", "INTEGER NOT NULL DEFAULT 0"),  # a post counts only above this
+)
+
+
 def ensure_schema(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
+    for table, column, ddl in COLUMNS:
+        cols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+        if column not in cols:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
 
 
 # --- campaigns -------------------------------------------------------------------------------
@@ -100,13 +112,15 @@ def add_campaign(
     rules: str = "",
     required_text: str = "",
     watermark: str = "",
+    pool_usd: float = 0.0,
+    min_views: int = 0,
 ) -> int:
-    if rate_per_1k <= 0:
-        raise ValueError("rate_per_1k must be > 0")
+    if pool_usd <= 0 and rate_per_1k <= 0:
+        raise ValueError("give a rate per 1K views, or a pool for pool campaigns")
     cur = conn.execute(
         "INSERT INTO campaigns (name, url, rate_per_1k, min_payout, max_payout, fee_pct,"
-        " platforms, rules, required_text, watermark, created_at)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        " platforms, rules, required_text, watermark, created_at, kind, pool_usd, min_views)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             name,
             url,
@@ -119,6 +133,9 @@ def add_campaign(
             required_text,
             watermark,
             db.now(),
+            "pool" if pool_usd > 0 else "rate",
+            pool_usd,
+            min_views,
         ),
     )
     assert cur.lastrowid is not None
@@ -524,14 +541,23 @@ def report(conn: sqlite3.Connection) -> list[dict[str, Any]]:
             " WHERE s.campaign_id = ? GROUP BY status",
             (c["id"],),
         ).fetchall()
-        gross = sum(
-            payout(p["views"], c["rate_per_1k"], c["min_payout"], c["max_payout"])
-            for p in posts
-            if p["submitted"]
-        )
+        counted = [p for p in posts if p["submitted"] and p["views"] >= c["min_views"]]
+        if c["kind"] == "pool":
+            # Pool payouts depend on every clipper's views, which we can't see: report our
+            # qualifying views; the share is known only when the campaign settles.
+            gross = 0.0
+        else:
+            gross = sum(
+                payout(p["views"], c["rate_per_1k"], c["min_payout"], c["max_payout"])
+                for p in counted
+            )
         out.append(
             {
                 "campaign": c["name"],
+                "kind": c["kind"],
+                "pool_usd": c["pool_usd"],
+                "qualifying_posts": len(counted),
+                "qualifying_views": sum(p["views"] for p in counted),
                 "clips": {r["status"]: r["n"] for r in clips},
                 "posts": len(posts),
                 "submitted": sum(1 for p in posts if p["submitted"]),

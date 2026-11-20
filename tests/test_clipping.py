@@ -71,3 +71,21 @@ def test_clip_length_bounds(conn: sqlite3.Connection, tmp_path: Path) -> None:
         clipping.save_clip(conn, sid, 0, 3)
     with pytest.raises(ValueError):
         clipping.save_clip(conn, sid, 10, 60)  # past the 40 s source
+
+
+def test_pool_campaign_counts_only_qualifying_views(
+    conn: sqlite3.Connection, tmp_path: Path
+) -> None:
+    cid = clipping.add_campaign(conn, "Pool", 0, pool_usd=5000, min_views=400_000)
+    video = tmp_path / "v.mp4"
+    media.run(["-f", "lavfi", "-i", "testsrc2=s=640x360:d=30", "-c:v", "libx264", str(video)])
+    sid = clipping.add_source(conn, cid, video, "https://twitch.tv/videos/1", authorized=True)
+    clip_id = clipping.save_clip(conn, sid, 0, 20)
+    conn.execute("UPDATE clips SET status = 'approved' WHERE id = ?", (clip_id,))
+    a = clipping.record_post(conn, clip_id, "tiktok", "https://t/1")
+    b = clipping.record_post(conn, clip_id, "youtube", "https://y/1")
+    clipping.set_views(conn, a, 500_000, submitted=True)
+    clipping.set_views(conn, b, 90_000, submitted=True)
+    rep = clipping.report(conn)[0]
+    assert rep["kind"] == "pool" and rep["qualifying_posts"] == 1
+    assert rep["qualifying_views"] == 500_000 and rep["est_gross_usd"] == 0.0

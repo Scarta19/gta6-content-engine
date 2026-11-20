@@ -11,6 +11,7 @@ import typer
 from gce import (
     analytics,
     assets,
+    clipping,
     discovery,
     gates,
     higgsfield,
@@ -34,6 +35,11 @@ app.add_typer(trends_app, name="trends")
 app.add_typer(script_app, name="script")
 app.add_typer(asset_app, name="asset")
 app.add_typer(metrics_app, name="metrics")
+clip_app = typer.Typer(
+    no_args_is_help=True,
+    help="Clipping mode for paid clip campaigns (Content Rewards): authorized footage only.",
+)
+app.add_typer(clip_app, name="clip")
 
 _state: dict[str, Any] = {}
 
@@ -511,3 +517,170 @@ def report_cmd() -> None:
     c = cfg()
     with db_mod.session(c.paths.db) as conn:
         table(analytics.report(conn, c))
+
+
+# --- clipping mode ---------------------------------------------------------------------------
+
+
+@clip_app.command("campaign-add")
+def clip_campaign_add(
+    name: str,
+    rate: Annotated[float, typer.Option(help="USD per 1,000 views")],
+    url: Annotated[str, typer.Option(help="Campaign page URL")] = "",
+    min_payout: Annotated[float, typer.Option(help="Min USD before a post pays")] = 0.0,
+    max_payout: Annotated[float, typer.Option(help="Per-post cap in USD (0 = none)")] = 0.0,
+    fee_pct: Annotated[float, typer.Option(help="Platform fee on payouts, %")] = 7.0,
+    platforms: Annotated[str, typer.Option(help="Space-separated")] = "tiktok youtube instagram",
+    rules: Annotated[str, typer.Option(help="Campaign rules, pasted from the campaign page")] = "",
+    required_text: Annotated[str, typer.Option(help="Tags/mentions required in captions")] = "",
+    watermark: Annotated[str, typer.Option(help="Handle of the dedicated clip account")] = "",
+) -> None:
+    """Register a campaign and its payout rules."""
+    with db_mod.session(cfg().paths.db) as conn:
+        cid = clipping.add_campaign(
+            conn,
+            name,
+            rate,
+            url=url,
+            min_payout=min_payout,
+            max_payout=max_payout,
+            fee_pct=fee_pct,
+            platforms=platforms,
+            rules=rules,
+            required_text=required_text,
+            watermark=watermark,
+        )
+    typer.echo(f"campaign {cid}: {name}")
+
+
+@clip_app.command("campaigns")
+def clip_campaigns() -> None:
+    with db_mod.session(cfg().paths.db) as conn:
+        table(
+            [
+                {k: r[k] for k in ("id", "name", "rate_per_1k", "min_payout", "max_payout")}
+                for r in conn.execute("SELECT * FROM campaigns ORDER BY id")
+            ]
+        )
+
+
+@clip_app.command("source-add")
+def clip_source_add(
+    campaign: str,
+    source_url: Annotated[str, typer.Option(help="The campaign's link to this footage")],
+    path: Annotated[
+        Path | None, typer.Option(help="Local file (else downloads with yt-dlp)")
+    ] = None,
+    authorized: Annotated[
+        bool, typer.Option(help="I checked the campaign provides/authorizes this footage")
+    ] = False,
+) -> None:
+    """Add campaign-provided footage."""
+    c = cfg()
+    with db_mod.session(c.paths.db) as conn:
+        camp = clipping.campaign(conn, campaign)
+        if not authorized:
+            raise typer.BadParameter("pass --authorized once you've confirmed the campaign source")
+        local = path or clipping.download(source_url, c.paths.work_dir / "clip_sources")
+        sid = clipping.add_source(conn, camp["id"], local, source_url, authorized)
+    typer.echo(f"source {sid}: {local}")
+
+
+@clip_app.command("transcribe")
+def clip_transcribe(
+    source_id: int,
+    model: Annotated[str, typer.Option(help="faster-whisper model size")] = "small",
+    lang: Annotated[str | None, typer.Option(help="Force language, e.g. en")] = None,
+) -> None:
+    """Local word-level transcript (faster-whisper, no API cost)."""
+    with db_mod.session(cfg().paths.db) as conn:
+        n = clipping.transcribe(conn, source_id, model, lang)
+    typer.echo(f"{n} words")
+
+
+@clip_app.command("find")
+def clip_find(
+    source_id: int,
+    n: int = 5,
+    min_s: float = 20.0,
+    max_s: float = 60.0,
+) -> None:
+    """Let the LLM pick the most viral moments (costs API tokens)."""
+    c = cfg()
+    with db_mod.session(c.paths.db) as conn:
+        ids = clipping.find_moments(conn, c.llm, source_id, n, min_s, max_s)
+        table(
+            [
+                dict(r)
+                for r in conn.execute(
+                    f"SELECT id, start_s, end_s, score, hook FROM clips WHERE id IN"
+                    f" ({','.join('?' * len(ids))}) ORDER BY score DESC",
+                    ids,
+                )
+            ]
+            if ids
+            else []
+        )
+
+
+@clip_app.command("add")
+def clip_add(source_id: int, start: float, end: float, hook: str = "", title: str = "") -> None:
+    """Add a clip by hand (no API cost)."""
+    with db_mod.session(cfg().paths.db) as conn:
+        cid = clipping.save_clip(conn, source_id, start, end, hook, title)
+    typer.echo(f"clip {cid}")
+
+
+@clip_app.command("render")
+def clip_render(clip_id: int) -> None:
+    """Cut a 9:16 clip with blurred fill, word-timed captions and the hook."""
+    c = cfg()
+    with db_mod.session(c.paths.db) as conn:
+        typer.echo(str(clipping.render_clip(conn, c, clip_id)))
+
+
+@clip_app.command("review")
+def clip_review(
+    clip_id: int,
+    reviewer: Annotated[str, typer.Option(help="Your name")],
+    approve: Annotated[bool, typer.Option("--approve/--reject")] = False,
+) -> None:
+    """Approve or reject a rendered clip after watching it (shows the campaign rules)."""
+    with db_mod.session(cfg().paths.db) as conn:
+        rules = conn.execute(
+            "SELECT c.rules FROM campaigns c JOIN clip_sources s ON s.campaign_id = c.id"
+            " JOIN clips k ON k.source_id = s.id WHERE k.id = ?",
+            (clip_id,),
+        ).fetchone()
+        typer.echo(f"Campaign rules: {rules['rules'] if rules else '?'}")
+        typer.echo(clipping.decide(conn, clip_id, reviewer, approve))
+
+
+@clip_app.command("post")
+def clip_post(
+    clip_id: int,
+    platform: str,
+    url: str,
+    submitted: Annotated[bool, typer.Option(help="Link already submitted on the campaign")] = False,
+) -> None:
+    """Record where you posted an approved clip (post and submit manually)."""
+    with db_mod.session(cfg().paths.db) as conn:
+        typer.echo(f"post {clipping.record_post(conn, clip_id, platform, url, submitted)}")
+
+
+@clip_app.command("views")
+def clip_views(
+    post_id: int,
+    views: int,
+    submitted: Annotated[bool | None, typer.Option("--submitted/--not-submitted")] = None,
+) -> None:
+    """Update a post's view count (from the campaign dashboard)."""
+    with db_mod.session(cfg().paths.db) as conn:
+        clipping.set_views(conn, post_id, views, submitted)
+
+
+@clip_app.command("report")
+def clip_report() -> None:
+    """Views and estimated payouts per campaign (after the platform fee)."""
+    with db_mod.session(cfg().paths.db) as conn:
+        echo_json(clipping.report(conn))

@@ -77,3 +77,23 @@ def test_rate_ranges_blocklist_and_nested_groups() -> None:
     assert "group-1" not in camps and camps["leaf-1"].name.startswith("$12,500")
     assert camps["r-1"].rate_per_1k == 0.2
     assert camps["b-1"].blocked and bounties.score(camps["b-1"]) == 0.0
+
+
+def test_group_cards_collapse_to_one_row() -> None:
+    import json as _json
+
+    def card(cid: str) -> dict[str, object]:
+        return {
+            "availableBudgetRaw": 0,
+            "id": cid,
+            "title": "GTA 6",
+            "type": "pool",
+            "budgetTotalRaw": 15000,
+            "creatorCountRaw": 781,
+            "group": {"campaignIds": ["a", "b", "c"]},
+        }
+
+    solo = {"availableBudgetRaw": 1, "id": "b", "title": "Clix pool", "type": "pool"}
+    text = "".join(_json.dumps(o) for o in (card("a"), card("c"), solo))
+    camps = bounties.parse_discover(text)
+    assert len(camps) == 1 and camps[0].kind == "group" and "group of 3" in (camps[0].name or "")

@@ -180,6 +180,7 @@ def parse_discover(html: str, now_ms: float | None = None) -> list[Campaign]:
     text = _rsc_text(html) or html
     dec = json.JSONDecoder()
     seen: dict[str, Campaign] = {}
+    groups: dict[str, Campaign] = {}
     i = text.find(MARKER)
     while i != -1:
         try:
@@ -190,9 +191,29 @@ def parse_discover(html: str, now_ms: float | None = None) -> list[Campaign]:
         # A grouping object can wrap several campaigns; keep only leaf campaign objects and keep
         # scanning inside it (i + 1), so nested campaigns aren't skipped or mislabeled.
         if isinstance(obj, dict) and obj.get("id") and json.dumps(obj).count(MARKER[1:]) == 1:
-            seen[str(obj["id"])] = campaign_from(obj, now_ms)
+            members = (obj.get("group") or {}).get("campaignIds") or []
+            if isinstance(members, list) and len(members) > 1:
+                # A group card: its numbers are aggregates over several campaigns, and the same
+                # card can appear under different member ids. Keep one row per group.
+                key = "group:" + ",".join(sorted(str(m) for m in members))
+                if key not in groups:
+                    groups[key] = _group_from(obj, members, now_ms)
+            else:
+                seen[str(obj["id"])] = campaign_from(obj, now_ms)
         i = text.find(MARKER, i + 1)
-    return list(seen.values())
+    grouped = {m for g in groups.values() for m in g.description.split("members: ")[-1].split()}
+    return [c for cid, c in seen.items() if cid not in grouped] + list(groups.values())
+
+
+def _group_from(obj: dict[str, Any], members: list[Any], now_ms: float | None) -> Campaign:
+    c = campaign_from(obj, now_ms)
+    ids = sorted(str(m) for m in members)
+    c.url = f"https://contentrewards.com/c/campaigns/{ids[0]}"
+    c.name = f"{c.name or 'Campaign'} (group of {len(ids)}; totals across all)"
+    c.kind = "group"
+    c.rate_per_1k = None
+    c.description = (c.description[:400] + f" | members: {' '.join(ids)}").strip()
+    return c
 
 
 # --- scoring ---------------------------------------------------------------------------------
@@ -217,7 +238,7 @@ def score(c: Campaign) -> float:
         if c.min_payout is not None and c.rate_per_1k:
             views_to_first_dollar = c.min_payout / c.rate_per_1k * 1000
             s += 15 if views_to_first_dollar <= 5000 else 8 if views_to_first_dollar <= 15000 else 0
-    elif c.kind == "pool":
+    elif c.kind in ("pool", "group"):
         s += 5  # payout depends on everyone else's views
         if c.min_views is not None and c.min_views > 100_000:
             s -= 10

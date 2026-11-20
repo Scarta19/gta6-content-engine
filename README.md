@@ -192,3 +192,24 @@ uv run ruff check . && uv run mypy src && uv run pytest -q
 ```
 
 CI runs the same on every push and pull request (`.github/workflows/ci.yml`).
+
+## Clipping mode (paid clip campaigns, e.g. Whop Content Rewards)
+
+Clip **only footage a campaign provides or authorizes**, post it on a dedicated account (not
+Secret Map Club), and keep a human approval before every post.
+
+```bash
+gce clip campaign-add "Streamer GTA VI" --rate 1.5 --min-payout 3 --max-payout 300 \
+    --url https://whop.com/... --rules "paste the campaign rules" --required-text "#ad @streamer"
+gce clip source-add "Streamer GTA VI" --source-url <campaign's VOD link> --authorized   # yt-dlp
+uv pip install faster-whisper && gce clip transcribe 1          # local, free
+gce clip find 1 --n 5                                          # LLM picks moments (API tokens)
+gce clip render 3                                              # 9:16, blurred fill, word captions
+gce clip review 3 --reviewer Santiago --approve                # after watching it
+gce clip post 3 tiktok https://www.tiktok.com/@clips/video/... --submitted
+gce clip views 1 42000 && gce clip report                      # est. payout after the 7% fee
+```
+
+Submission stays manual: Content Rewards' documented flow is pasting the posted video's link
+on the campaign page. Whop's public bounty-submission API needs a user OAuth token and isn't
+documented as the Content Rewards flow, so the engine doesn't call it.

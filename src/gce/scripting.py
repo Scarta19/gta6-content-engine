@@ -42,7 +42,8 @@ Hard rules:
 - CONFIRMED stories may be stated as fact and attributed to Rockstar.
 - CORROBORATED stories must be attributed ("Bloomberg reports...").
 - UNVERIFIED material may only appear as clearly labeled speculation or rumor.
-- Concept videos are original AI-generated visuals: say so in the voiceover and caption.
+- Concept videos are original AI-generated visuals: never claim they are real gameplay, footage
+  or a leak (the platform AI-content label is applied at publish).
 - Audience: adults 18-34. Never address kids or use kid-directed wording.
 - Faceless channel: narration over visuals, no presenter.
 - Third-party creators may inspire the topic or format, never copy their wording or footage.
@@ -169,10 +170,6 @@ def validate(script: Script, story_status: str | None, source_urls: set[str]) ->
             problems.append("unverified claim used without calling it a rumor/theory in voiceover")
     if story_status != "confirmed" and HYPE_WITHOUT_PROOF.search(script.voiceover):
         problems.append("voiceover says 'confirmed'/'leak confirms' but the story is not confirmed")
-    if script.ai_generated and not (
-        AI_DISCLOSURE_RE.search(script.voiceover) and AI_DISCLOSURE_RE.search(script.caption)
-    ):
-        problems.append("concept videos must disclose AI generation in voiceover and caption")
     return problems
 
 

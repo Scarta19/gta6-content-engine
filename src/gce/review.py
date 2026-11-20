@@ -13,7 +13,7 @@ CHECKLIST = (
     ("facts", "Every factual claim matches its cited source and verification status."),
     ("no_fabrication", "Nothing implies an unannounced Rockstar feature, date, price or leak."),
     ("rights", "Every visual and audio asset has documented rights (listed above)."),
-    ("ai_label", "AI-generated visuals are labeled on screen and in the caption (or N/A)."),
+    ("ai_label", "AI visuals are never presented as real gameplay; platform AI flag set (or N/A)."),
     ("captions", "Captions are accurate, readable and not covered by platform UI."),
     ("platform", "Title/caption/cover are not misleading; platform AI-content toggle planned."),
 )

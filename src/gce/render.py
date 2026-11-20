@@ -133,7 +133,9 @@ def render(
 
     cues = subtitles.time_cues(narration, total - 0.4, cfg.render.max_words_per_caption)
     srt = subtitles.write_srt(cues, work / "captions.srt")
-    ai_label = script.ai_generated or any(a["ai_generated"] for a in visuals)
+    ai_label = cfg.render.show_ai_label and (
+        script.ai_generated or any(a["ai_generated"] for a in visuals)
+    )
     subtitles.write_ass(
         cues, work / "captions.ass", cfg.render, script.hook, script.on_screen, total, ai_label
     )

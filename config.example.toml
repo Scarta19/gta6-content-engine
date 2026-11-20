@@ -56,6 +56,7 @@ font = "DejaVu Sans"
 font_size = 76
 max_words_per_caption = 4
 ai_label_text = "AI-GENERATED VISUALS - NOT REAL GAMEPLAY"
+show_ai_label = false   # on-screen overlay; platform AI flags are always set at publish
 scene_seconds = 2.5        # cut every ~2.5 s
 watermark = "@secretmapclub"   # brand: Secret Map Club
 background_color = "0x101418"
@@ -94,6 +95,7 @@ max_duration_s = 58.0
 allow_rockstar_assets = false
 # Hook score below this blocks approval (0-10). 0 = advisory only.
 min_hook_score = 0.0
+require_caption_ai_disclosure = false
 
 [trends]
 # Viral channels to learn from (YouTube handles). Metadata only: titles, views, timing.

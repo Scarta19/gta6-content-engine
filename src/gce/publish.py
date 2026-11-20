@@ -73,8 +73,9 @@ def publish(
             raise PermissionError("set GCE_ALLOW_LIVE_PUBLISH=yes to enable live publishing")
         if ai_content and not ai_disclosure_confirmed:
             raise PermissionError(
-                "AI-generated video: confirm the platform AI-content label is handled and pass "
-                "--ai-disclosure-confirmed"
+                "AI-generated video: YouTube gets containsSyntheticMedia automatically, but "
+                "Zernio has no TikTok AIGC field, so turn on TikTok's 'AI-generated content' "
+                "label in the app, then pass --ai-disclosure-confirmed"
             )
 
     body = zernio.build_post_body(

@@ -82,3 +82,24 @@ def test_virality_gate_flags_short_video_and_weak_cta(
     assert not g.passed
     assert any("duration" in i for i in g.issues)
     assert any("CTA" in i for i in g.issues)
+
+
+def test_caption_ai_disclosure_is_optional(
+    conn: sqlite3.Connection, cfg: config.Config, tmp_path: Path
+) -> None:
+    import dataclasses
+
+    from gce import assets as assets_mod
+    from gce import gates as gates_mod
+
+    sid = scripting.save(conn, scripting.Script.from_dict(dict(NEWS_SCRIPT), "news", None))
+    clip = tmp_path / "c.mp4"
+    clip.write_bytes(b"\x00")
+    assets_mod.attach(conn, sid, [assets_mod.add(conn, clip, "ai_generated", "higgsfield")])
+    off = gates_mod.rights_safety_gate(conn, cfg, sid)
+    assert not any("AI disclosure" in i for i in off.issues)
+    strict = dataclasses.replace(
+        cfg, gates=dataclasses.replace(cfg.gates, require_caption_ai_disclosure=True)
+    )
+    on = gates_mod.rights_safety_gate(conn, strict, sid)
+    assert any("AI disclosure" in i for i in on.issues)

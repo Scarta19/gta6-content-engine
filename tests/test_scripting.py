@@ -38,16 +38,10 @@ def test_blocks_false_confirmation_language() -> None:
     assert any("not confirmed" in p for p in scripting.validate(s, "corroborated", URLS))
 
 
-def test_concept_requires_ai_disclosure() -> None:
+def test_concept_needs_no_on_screen_disclosure() -> None:
+    # Disclosure moved to the platform AI flags set at publish time.
     s = make("concept", claims=[])
-    assert any("disclose" in p for p in scripting.validate(s, None, set()))
-    ok = make(
-        "concept",
-        claims=[],
-        voiceover="This is an AI-generated concept. " + NEWS_SCRIPT["voiceover"],
-        caption="AI-generated fan concept, not real gameplay.",
-    )
-    assert scripting.validate(ok, None, set()) == []
+    assert scripting.validate(s, None, set()) == []
 
 
 def test_extract_json_from_chatty_reply() -> None:

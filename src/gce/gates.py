@@ -133,7 +133,11 @@ def rights_safety_gate(
                     f"({insp['creator'] or insp['url']}); inspiration is ideas only"
                 )
     has_ai = script.ai_generated or any(a["ai_generated"] for a in used)
-    if has_ai and not (scripting.AI_DISCLOSURE_RE.search(script.caption)):
+    if (
+        has_ai
+        and cfg.gates.require_caption_ai_disclosure
+        and not scripting.AI_DISCLOSURE_RE.search(script.caption)
+    ):
         issues.append("AI visuals present but caption has no AI disclosure")
     text = " ".join(
         [

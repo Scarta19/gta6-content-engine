@@ -67,6 +67,9 @@ class RenderCfg:
     font_size: int = 76
     max_words_per_caption: int = 4
     ai_label_text: str = "AI-GENERATED VISUALS - NOT REAL GAMEPLAY"
+    # On-screen AI overlay is optional; the platform AI/synthetic-content flags are always set
+    # at publish time (YouTube containsSyntheticMedia, --ai-disclosure-confirmed gate).
+    show_ai_label: bool = False
     scene_seconds: float = 2.5  # target shot length; viral Shorts cut every 2-3 s
     watermark: str = "@secretmapclub"  # brand handle shown small on every video; "" to hide
     background_color: str = "0x101418"
@@ -100,6 +103,7 @@ class GatesCfg:
     max_duration_s: float = 58.0
     allow_rockstar_assets: bool = False
     min_hook_score: float = 0.0
+    require_caption_ai_disclosure: bool = False
 
 
 @dataclass(frozen=True)

@@ -534,9 +534,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 Dialogue: 0,0:00:00.00,0:00:05.00,Cover,,0,0,0,,{subtitles._ass_escape(clean.upper())}
 """  # noqa: E501
     (work / "cover.ass").write_text(ass, encoding="utf-8")
-    # Gameplay strip enlarged to 1.25x the frame width (cropped at the sides) so the moment
-    # reads at feed size; logo kept above the strip as in the clip.
-    strip_w = int(w * 1.25) // 2 * 2
+    # Full-width gameplay strip, never cropped, so the streamer's facecam (usually in a corner)
+    # stays whole; logo kept above the strip as in the clip.
+    strip_w = w
     strip_h = strip_w * 9 // 16 // 2 * 2
     strip_top = (h - strip_h) // 2 + 140
     overlay = camp["overlay_path"]

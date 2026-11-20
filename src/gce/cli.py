@@ -662,11 +662,20 @@ def clip_thumbnail(
     clip_id: int,
     text: Annotated[str, typer.Option(help="Big cover text; must match what happens")],
     at: Annotated[float | None, typer.Option(help="Seconds into the clip for the frame")] = None,
+    face: Annotated[
+        str | None, typer.Option(help="Facecam region x,y,w,h as source fractions, e.g. 0,0,.25,.3")
+    ] = None,
 ) -> None:
     """Make a vertical cover image (cover.jpg) from a real frame of the clip."""
+    box = None
+    if face:
+        parts = [float(v) for v in face.split(",")]
+        if len(parts) != 4:
+            raise typer.BadParameter("--face needs 4 comma-separated numbers")
+        box = (parts[0], parts[1], parts[2], parts[3])
     c = cfg()
     with db_mod.session(c.paths.db) as conn:
-        typer.echo(str(clipping.thumbnail(conn, c, clip_id, text, at)))
+        typer.echo(str(clipping.thumbnail(conn, c, clip_id, text, at, box)))
 
 
 @clip_app.command("review")

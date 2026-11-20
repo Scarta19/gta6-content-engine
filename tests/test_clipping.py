@@ -152,3 +152,7 @@ def test_clip_thumbnail(conn: sqlite3.Connection, cfg: config.Config, tmp_path: 
     assert out.name == "cover.jpg" and out.stat().st_size > 10_000
     with pytest.raises(ValueError):
         clipping.thumbnail(conn, cfg, clip_id, "x", at=99.0)
+    faced = clipping.thumbnail(conn, cfg, clip_id, "Reaction", at=4.0, face=(0, 0, 0.3, 0.35))
+    assert faced.stat().st_size > 10_000
+    with pytest.raises(ValueError):
+        clipping.thumbnail(conn, cfg, clip_id, "x", face=(0.9, 0, 0.3, 0.3))

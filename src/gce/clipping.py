@@ -498,13 +498,28 @@ def render_clip(conn: sqlite3.Connection, cfg: Config, clip_id: int) -> Path:
 
 
 def thumbnail(
-    conn: sqlite3.Connection, cfg: Config, clip_id: int, text: str, at: float | None = None
+    conn: sqlite3.Connection,
+    cfg: Config,
+    clip_id: int,
+    text: str,
+    at: float | None = None,
+    face: tuple[float, float, float, float] | None = None,
 ) -> Path:
     """Render a 1080x1920 cover (cover.jpg) from a real frame of the clip with big title text.
 
     `at` is seconds into the clip (default: the middle). The frame is real stream footage and
     the text must describe what actually happens in the clip, never a moment that isn't there.
+    `face` = (x, y, w, h) as fractions of the source frame: that region (the streamer's facecam)
+    is blown up below the gameplay strip so his reaction leads the thumbnail.
     """
+    if face is not None and not (
+        all(0 <= v <= 1 for v in face)
+        and face[2] > 0
+        and face[3] > 0
+        and face[0] + face[2] <= 1
+        and face[1] + face[3] <= 1
+    ):
+        raise ValueError("face must be x,y,w,h fractions inside the frame")
     media.require_libass()
     clip = _clip(conn, clip_id)
     src = _source(conn, clip["source_id"])
@@ -538,7 +553,8 @@ Dialogue: 0,0:00:00.00,0:00:05.00,Cover,,0,0,0,,{subtitles._ass_escape(clean.upp
     # stays whole; logo kept above the strip as in the clip.
     strip_w = w
     strip_h = strip_w * 9 // 16 // 2 * 2
-    strip_top = (h - strip_h) // 2 + 140
+    # With a facecam blow-up the strip moves up so the face sits in the upper two thirds.
+    strip_top = int(h * 0.29) if face else (h - strip_h) // 2 + 140
     overlay = camp["overlay_path"]
     logo = (
         f"[1:v]scale={int(w * 0.7) // 2 * 2}:-2,format=rgba[ov];"
@@ -546,11 +562,24 @@ Dialogue: 0,0:00:00.00,0:00:05.00,Cover,,0,0,0,,{subtitles._ass_escape(clean.upp
         if overlay
         else "[c]"
     )
+    if face:
+        fx, fy, fw, fh = face
+        face_w = int(w * 0.62) // 2 * 2
+        split, cam = (
+            "split=3[a][b][f]",
+            f";[f]crop=iw*{fw}:ih*{fh}:iw*{fx}:ih*{fy},scale={face_w}:-2,"
+            "pad=iw+16:ih+16:8:8:color=0xFFE500,eq=saturation=1.2[cam]",
+        )
+        cam_y = strip_top + strip_h - 40
+        tail = f"[bg][fg]overlay=0:{strip_top}[c0];[c0][cam]overlay=(W-w)/2:{cam_y}[c];"
+    else:
+        split, cam = "split[a][b]", ""
+        tail = f"[bg][fg]overlay=0:{strip_top}[c];"
     vf = (
-        f"[0:v]split[a][b];[a]scale={w}:{h}:force_original_aspect_ratio=increase,"
+        f"[0:v]{split};[a]scale={w}:{h}:force_original_aspect_ratio=increase,"
         f"crop={w}:{h},boxblur=24:2,eq=brightness=-0.15[bg];"
-        f"[b]scale={strip_w}:{strip_h},crop={w}:{strip_h},eq=saturation=1.25:contrast=1.08[fg];"
-        f"[bg][fg]overlay=0:{strip_top}[c];{logo}ass=cover.ass,setsar=1[v]"
+        f"[b]scale={strip_w}:{strip_h},crop={w}:{strip_h},eq=saturation=1.25:contrast=1.08[fg]"
+        f"{cam};{tail}{logo}ass=cover.ass,setsar=1[v]"
     )
     out = work / "cover.jpg"
     media.run(

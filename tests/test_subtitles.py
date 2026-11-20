@@ -51,3 +51,12 @@ def test_align_without_pauses_matches_even_split() -> None:
     text = "Hello there. General Kenobi."
     a = subtitles.align_cues(text, 4.0, 4, [])
     assert a[0].start == 0.0 and abs(a[-1].end - 4.0) < 0.01
+
+
+def test_closing_card_follows_its_words_not_previous_card() -> None:
+    text = "Two facts. One: radio. Two: apartment. Which one did you miss?"
+    pauses = [(1.5, 1.9), (3.5, 3.9), (6.0, 6.4)]
+    cues = subtitles.align_cues(text, 9.0, 4, pauses)
+    starts = subtitles.beat_starts(["1. Radio", "2. Apartment", "Which one did you miss?"], cues)
+    assert starts is not None
+    assert starts[2] > starts[1] and starts[2] == 6.4

@@ -157,7 +157,10 @@ def connect(path: Path) -> sqlite3.Connection:
     return conn
 
 
-MIGRATIONS = (("scripts", "language", "TEXT NOT NULL DEFAULT 'en'"),)
+MIGRATIONS = (
+    ("scripts", "language", "TEXT NOT NULL DEFAULT 'en'"),
+    ("items", "body", "TEXT NOT NULL DEFAULT ''"),  # article text excerpt, for fact grounding
+)
 
 
 def _migrate(conn: sqlite3.Connection) -> None:

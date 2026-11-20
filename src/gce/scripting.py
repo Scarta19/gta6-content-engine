@@ -192,6 +192,10 @@ def build_prompt(
     lines.append("Sources (cite by id in claims[].source_id, never paste URLs):")
     for i, s in enumerate(sources, 1):
         lines.append(f"- S{i} [{s['tier']}] {s['domain']} :: {s['title']}")
+        body = s["body"] if "body" in s.keys() else ""  # noqa: SIM118 (sqlite3.Row)
+        if body:
+            excerpt = " ".join(body.split())[:1500]
+            lines.append(f"  S{i} excerpt (paraphrase, never quote at length): {excerpt}")
     if not sources:
         lines.append("- none (concept only: do not make factual claims)")
     return "\n".join(lines)
@@ -205,6 +209,7 @@ def generate(
     language: str = "en",
     topic: str = "",
     extra_sources: list[str] | None = None,
+    research: str = "",
 ) -> tuple[int, list[str]]:
     """extra_sources: URLs the writer may cite (e.g. a reputable guide or our own capture)."""
     story = None
@@ -214,6 +219,11 @@ def generate(
         if story is None:
             raise ValueError(f"story {story_id} not found")
         sources = verify.sources_for(conn, story_id)
+    if research:
+        from gce import discovery
+
+        seen = {s["url"] for s in sources}
+        sources += [r for r in discovery.research(conn, research) if r["url"] not in seen]
     prompt = build_prompt(fmt, story, sources, language, topic)
     id_to_url = {f"S{i}": str(s["url"]) for i, s in enumerate(sources, 1)}
     if extra_sources:
@@ -296,6 +306,20 @@ def check(conn: sqlite3.Connection, script_id: int) -> list[str]:
         ).fetchone()
         status = story["status"] if story else None
         urls = {r["url"] for r in verify.sources_for(conn, script.story_id)}
+        # --research sources: any discovered official/reputable item is citable.
+        cited = [c.get("source_url", "") for c in script.claims]
+        urls |= (
+            {
+                r["url"]
+                for r in conn.execute(
+                    "SELECT url FROM items WHERE tier IN ('official', 'reputable') AND url IN"
+                    f" ({','.join('?' * len(cited))})",
+                    cited,
+                )
+            }
+            if cited
+            else set()
+        )
     else:
         # Hand-written scripts without a story: verification status comes from their claims.
         statuses = {c.get("status", "unverified") for c in script.claims}

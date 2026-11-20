@@ -79,11 +79,17 @@ def init() -> None:
 
 
 @app.command()
-def discover() -> None:
+def discover(
+    bodies: Annotated[
+        int, typer.Option(help="Also fetch article text for up to N official/reputable items")
+    ] = 0,
+) -> None:
     """Fetch feeds, then cluster and grade new items into stories."""
     c = cfg()
     with db_mod.session(c.paths.db) as conn:
         echo_json(discovery.run(conn, c.discovery, c.verification))
+        if bodies:
+            echo_json({"article_text": discovery.fetch_bodies(conn, bodies)})
         new = verify.run(conn)
         typer.echo(f"{len(new)} new stories")
     stories()
@@ -140,6 +146,12 @@ def script_new(
     from_trend: Annotated[
         str | None, typer.Option(help="Trend video id: use its topic/format as a signal")
     ] = None,
+    research: Annotated[
+        str,
+        typer.Option(
+            help="Pull citable articles whose text matches these words (gce discover --bodies)"
+        ),
+    ] = "",
 ) -> None:
     """Generate a script with the LLM (costs API tokens)."""
     if fmt not in scripting.FORMATS:
@@ -162,7 +174,14 @@ def script_new(
                 "never its wording, footage or specific claims unless our sources confirm them."
             ).strip()
         script_id, problems = scripting.generate(
-            conn, c.llm, fmt, story, language=lang, topic=topic, extra_sources=source
+            conn,
+            c.llm,
+            fmt,
+            story,
+            language=lang,
+            topic=topic,
+            extra_sources=source,
+            research=research,
         )
         if trend is not None:
             trends.log_inspiration(conn, script_id, trend)

@@ -69,7 +69,7 @@ GTA_RE = re.compile(r"\b(gta\s*(vi|6)|grand theft auto vi|vice city)\b", re.I)
 # Never recommended: cannabis/vape, gambling/betting, and loot-box style "pack opening" offers.
 BLOCK_RE = re.compile(
     r"\b(cannabis|weed|thc|cbd|vape|puffco|dispensary|casino|gambl\w*|betting|sportsbook|"
-    r"1win|stake\.com|slots?|roulette|loot ?box(es)?|pack opening|case opening|\w*packs\b)",
+    r"1win|stake\.com|slot machines?|roulette|loot ?box(es)?|pack opening|case opening|\w*packs\b)",
     re.I,
 )
 

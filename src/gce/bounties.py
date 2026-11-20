@@ -208,7 +208,6 @@ def parse_discover(html: str, now_ms: float | None = None) -> list[Campaign]:
 def _group_from(obj: dict[str, Any], members: list[Any], now_ms: float | None) -> Campaign:
     c = campaign_from(obj, now_ms)
     ids = sorted(str(m) for m in members)
-    c.url = f"https://contentrewards.com/c/campaigns/{ids[0]}"
     c.name = f"{c.name or 'Campaign'} (group of {len(ids)}; totals across all)"
     c.kind = "group"
     c.rate_per_1k = None

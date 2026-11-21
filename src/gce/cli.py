@@ -11,6 +11,7 @@ import typer
 from gce import (
     analytics,
     assets,
+    bounties,
     clipping,
     discovery,
     gates,
@@ -40,6 +41,8 @@ clip_app = typer.Typer(
     help="Clipping mode for paid clip campaigns (Content Rewards): authorized footage only.",
 )
 app.add_typer(clip_app, name="clip")
+bounty_app = typer.Typer(no_args_is_help=True, help="Watch clipping platforms for campaigns.")
+app.add_typer(bounty_app, name="bounties")
 
 _state: dict[str, Any] = {}
 
@@ -617,8 +620,8 @@ def clip_transcribe(
 def clip_find(
     source_id: int,
     n: int = 5,
-    min_s: float = 20.0,
-    max_s: float = 60.0,
+    min_s: float = 12.0,
+    max_s: float = 25.0,
 ) -> None:
     """Let the LLM pick the most viral moments (costs API tokens)."""
     c = cfg()
@@ -654,6 +657,27 @@ def clip_render(clip_id: int) -> None:
         typer.echo(str(clipping.render_clip(conn, c, clip_id)))
 
 
+@clip_app.command("thumbnail")
+def clip_thumbnail(
+    clip_id: int,
+    text: Annotated[str, typer.Option(help="Big cover text; must match what happens")],
+    at: Annotated[float | None, typer.Option(help="Seconds into the clip for the frame")] = None,
+    face: Annotated[
+        str | None, typer.Option(help="Facecam region x,y,w,h as source fractions, e.g. 0,0,.25,.3")
+    ] = None,
+) -> None:
+    """Make a vertical cover image (cover.jpg) from a real frame of the clip."""
+    box = None
+    if face:
+        parts = [float(v) for v in face.split(",")]
+        if len(parts) != 4:
+            raise typer.BadParameter("--face needs 4 comma-separated numbers")
+        box = (parts[0], parts[1], parts[2], parts[3])
+    c = cfg()
+    with db_mod.session(c.paths.db) as conn:
+        typer.echo(str(clipping.thumbnail(conn, c, clip_id, text, at, box)))
+
+
 @clip_app.command("review")
 def clip_review(
     clip_id: int,
@@ -683,6 +707,32 @@ def clip_post(
         typer.echo(f"post {clipping.record_post(conn, clip_id, platform, url, submitted)}")
 
 
+@clip_app.command("publish")
+def clip_publish(
+    clip_id: int,
+    platforms: Annotated[list[str], typer.Option("--platform", "-p")],
+    live: Annotated[bool, typer.Option(help="Actually post (needs approval + env flag)")] = False,
+    at: Annotated[str | None, typer.Option(help="Schedule, ISO local time")] = None,
+) -> None:
+    """Post an approved clip via Zernio (dry run unless --live). Submit on the campaign after."""
+    c = cfg()
+    with db_mod.session(c.paths.db) as conn:
+        out = clipping.publish_clip(conn, c, clip_id, platforms, live=live, scheduled_for=at)
+    typer.echo(json.dumps(out, indent=2))
+    if out["mode"] == "live":
+        typer.echo("Now submit each link on the campaign page within 30 minutes.")
+
+
+@clip_app.command("unsubmitted")
+def clip_unsubmitted() -> None:
+    """List posts still waiting to be submitted on their campaign."""
+    with db_mod.session(cfg().paths.db) as conn:
+        for r in clipping.unsubmitted(conn):
+            typer.echo(
+                f"post {r['id']} clip {r['clip_id']} {r['platform']} {r['url']} {r['created_at']}"
+            )
+
+
 @clip_app.command("views")
 def clip_views(
     post_id: int,
@@ -699,3 +749,47 @@ def clip_report() -> None:
     """Views and estimated payouts per campaign (after the platform fee)."""
     with db_mod.session(cfg().paths.db) as conn:
         echo_json(clipping.report(conn))
+
+
+# --- bounty intelligence ---------------------------------------------------------------------
+
+
+@bounty_app.command("scan")
+def bounties_scan(
+    big_pool: Annotated[float, typer.Option(help="Alert threshold for budget/pool, USD")] = 10_000,
+    alerts_file: Annotated[
+        Path | None, typer.Option(help="Write unsent alerts here (markdown) and mark them sent")
+    ] = None,
+) -> None:
+    """One monitoring pass (run hourly). Never registers or submits anything."""
+    with db_mod.session(cfg().paths.db) as conn:
+        echo_json(bounties.scan(conn, big_pool_usd=big_pool))
+        rows = bounties.pending_alerts(conn)
+        text = "\n\n".join(bounties.format_alert(r) for r in rows)
+        if text:
+            typer.echo(text)
+        if alerts_file is not None:
+            alerts_file.write_text(text, encoding="utf-8")
+            bounties.mark_sent(conn, [r["id"] for r in rows])
+
+
+@bounty_app.command("top")
+def bounties_top(limit: int = 15, all_niches: bool = False) -> None:
+    """Best open campaigns by score (gaming only unless --all-niches)."""
+    with db_mod.session(cfg().paths.db) as conn:
+        table(
+            [
+                {
+                    "score": r["score"],
+                    "name": (r["name"] or "")[:40],
+                    "type": r["kind"],
+                    "rate": r["rate_per_1k"],
+                    "max": r["max_payout"],
+                    "budget": r["budget_total"] or r["pool_usd"],
+                    "spent": r["budget_used"],
+                    "creators": r["creators"],
+                    "url": r["url"],
+                }
+                for r in bounties.top(conn, limit, gaming_only=not all_niches)
+            ]
+        )

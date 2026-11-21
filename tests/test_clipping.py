@@ -94,3 +94,77 @@ def test_pool_campaign_counts_only_qualifying_views(
     rep = clipping.report(conn)[0]
     assert rep["kind"] == "pool" and rep["qualifying_posts"] == 1
     assert rep["qualifying_views"] == 500_000 and rep["est_gross_usd"] == 0.0
+
+
+def test_publish_clip_via_zernio(
+    conn: sqlite3.Connection, cfg: config.Config, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import json
+
+    import httpx
+
+    from gce import zernio
+
+    _, sid = _source(conn, tmp_path)
+    clip_id = clipping.save_clip(conn, sid, 3.0, 15.0, hook="He jumped?!", title="Insane jump")
+    clipping.render_clip(conn, cfg, clip_id)
+    dry = clipping.publish_clip(conn, cfg, clip_id, ["tiktok", "youtube"])
+    assert dry["mode"] == "dry_run" and "#ad @streamer" in dry["request"]["content"]
+    with pytest.raises(ValueError):
+        clipping.publish_clip(conn, cfg, clip_id, ["facebook"])
+    with pytest.raises(PermissionError):
+        clipping.publish_clip(conn, cfg, clip_id, ["tiktok"], live=True)
+    clipping.decide(conn, clip_id, "Santiago", approve=True)
+    with pytest.raises(PermissionError):
+        clipping.publish_clip(conn, cfg, clip_id, ["tiktok"], live=True)
+    monkeypatch.setenv("GCE_ALLOW_LIVE_PUBLISH", "yes")
+    monkeypatch.setenv("ZERNIO_API_KEY", "sk_test")
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.url.path.endswith("/media/presign"):
+            return httpx.Response(
+                200, json={"uploadUrl": "https://storage.test/up", "publicUrl": "https://cdn/v"}
+            )
+        if req.url.host == "storage.test":
+            return httpx.Response(200)
+        if req.url.path.endswith("/posts"):
+            body = json.loads(req.content)
+            assert body["platforms"][0]["accountId"] == "a" * 24
+            return httpx.Response(200, json={"post": {"_id": "p" * 24}})
+        return httpx.Response(404)
+
+    client = zernio.Client(cfg.zernio, http=httpx.Client(transport=httpx.MockTransport(handler)))
+    out = clipping.publish_clip(conn, cfg, clip_id, ["tiktok"], live=True, client=client)
+    assert out["mode"] == "live" and len(out["clip_posts"]) == 1
+    pending = clipping.unsubmitted(conn)
+    assert [r["url"] for r in pending] == ["zernio:" + "p" * 24]
+
+
+def test_clip_thumbnail(conn: sqlite3.Connection, cfg: config.Config, tmp_path: Path) -> None:
+    _, sid = _source(conn, tmp_path)
+    clip_id = clipping.save_clip(conn, sid, 3.0, 15.0, hook="He jumped?!", title="Insane jump")
+    png = tmp_path / "overlay.png"
+    media.run(
+        ["-f", "lavfi", "-i", "color=c=red@0.5:s=1080x200,format=rgba", "-frames:v", "1", str(png)]
+    )
+    clipping.set_overlay(conn, 1, png)
+    out = clipping.thumbnail(conn, cfg, clip_id, "He jumped the bridge 😭", at=4.0)
+    assert out.name == "cover.jpg" and out.stat().st_size > 10_000
+    with pytest.raises(ValueError):
+        clipping.thumbnail(conn, cfg, clip_id, "x", at=99.0)
+    faced = clipping.thumbnail(conn, cfg, clip_id, "Reaction", at=4.0, face=(0, 0, 0.3, 0.35))
+    assert faced.stat().st_size > 10_000
+    with pytest.raises(ValueError):
+        clipping.thumbnail(conn, cfg, clip_id, "x", face=(0.9, 0, 0.3, 0.3))
+
+
+def test_campaign_credit_drawn_in_logo_slot(
+    conn: sqlite3.Connection, cfg: config.Config, tmp_path: Path
+) -> None:
+    _, sid = _source(conn, tmp_path)
+    conn.execute("UPDATE campaigns SET watermark = 'streamer on Kick' WHERE id = 1")
+    clip_id = clipping.save_clip(conn, sid, 3.0, 12.0, hook="No way", title="t")
+    out = clipping.render_clip(conn, cfg, clip_id)
+    credit = (out.parent / "credit.ass").read_text()
+    assert "streamer on Kick" in credit
+    assert "streamer on Kick" not in (out.parent / "captions.ass").read_text()

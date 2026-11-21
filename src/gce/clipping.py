@@ -299,7 +299,8 @@ def find_prompt(
         [
             f"Campaign rules: {rules or 'none given'}",
             f"Required caption text: {required or 'none'}",
-            f"Return the {n} best clips, each {min_s:.0f}-{max_s:.0f} seconds long.",
+            f"Return the {n} best clips, each {min_s:.0f}-{max_s:.0f} seconds long (15-20 s is"
+            " ideal). Start on the setup line, no lead-in, and cut right after the payoff.",
             "Transcript with start times in seconds:",
             *transcript_lines(words),
             "",
@@ -347,8 +348,8 @@ def find_moments(
     llm_cfg: LlmCfg,
     source_id: int,
     n: int = 5,
-    min_s: float = 20.0,
-    max_s: float = 60.0,
+    min_s: float = 12.0,
+    max_s: float = 25.0,
 ) -> list[int]:
     from gce.llm import complete
     from gce.scripting import extract_json
@@ -423,18 +424,51 @@ def render_clip(conn: sqlite3.Connection, cfg: Config, clip_id: int) -> Path:
     length = clip["end_s"] - clip["start_s"]
     work = cfg.paths.work_dir / f"clip_{clip_id}"
     work.mkdir(parents=True, exist_ok=True)
-    # Never brand campaign clips with the faceless channel's handle.
-    rcfg = dataclasses.replace(cfg.render, watermark=camp["watermark"])
+    # Never brand campaign clips with the faceless channel's handle. Without a logo overlay the
+    # campaign credit (e.g. "dasgasd3m on Kick") is drawn large in the logo slot instead of as
+    # a tiny corner watermark that the TikTok/Reels UI covers.
+    credit = (camp["watermark"] or "").strip() if not camp["overlay_path"] else ""
+    rcfg = dataclasses.replace(cfg.render, watermark="" if credit else camp["watermark"])
     cues = clip_cues(words, clip["start_s"], clip["end_s"], rcfg.max_words_per_caption)
-    subtitles.write_ass(cues, work / "captions.ass", rcfg, clip["hook"], [], length, False)
+    # Caption fonts have no emoji glyphs (they render as boxes); keep emoji for the post text.
+    no_emoji = re.sub(r"[\U00010000-\U0010FFFF\u2600-\u27BF\uFE0F]", "", clip["hook"] or "")
+    hook = " ".join(no_emoji.split())
+    subtitles.write_ass(cues, work / "captions.ass", rcfg, hook, [], length, False)
     w, h = rcfg.width, rcfg.height
     overlay = camp["overlay_path"]
+    # The campaign logo sits in the blurred gap between the hook and the 16:9 gameplay strip:
+    # inside the TikTok/Reels safe zone (the bottom ~420px is covered by app UI) and never
+    # over the stream, the hook or the captions.
+    strip_top = (h - w * 9 // 16) // 2
+    # Logos often ship with transparent padding, so size by width and centre the image on
+    # the gap: the visible mark lands between the hook and the strip.
+    logo_w = int(w * 0.8) // 2 * 2
     branded = (
-        f"[base];[1:v]scale={w}:{h}:force_original_aspect_ratio=decrease,format=rgba[ov];"
-        "[base][ov]overlay=(W-w)/2:(H-h)/2:shortest=1,"
+        f"[base];[1:v]scale={logo_w}:-2,format=rgba[ov];"
+        f"[base][ov]overlay=(W-w)/2:{strip_top - 85}-h/2:shortest=1,"
         if overlay
         else ","
     )
+    if credit:
+        size = int(rcfg.font_size * 0.85)
+        (work / "credit.ass").write_text(
+            f"""[Script Info]
+ScriptType: v4.00+
+PlayResX: {w}
+PlayResY: {h}
+ScaledBorderAndShadow: yes
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Credit,{rcfg.font},{size},&H00FFFFFF,&H000000FF,&H00000000,&H96000000,-1,0,0,0,100,100,0,0,1,6,2,8,60,60,{strip_top - size - 45},1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:00.00,{subtitles._ass_ts(length)},Credit,,0,0,0,,{subtitles._ass_escape(credit)}
+""",  # noqa: E501
+            encoding="utf-8",
+        )
+        branded += "ass=credit.ass,"
     vf = (
         f"[0:v]split[a][b];[a]scale={w}:{h}:force_original_aspect_ratio=increase,"
         f"crop={w}:{h},boxblur=24:2,eq=brightness=-0.08[bg];"
@@ -487,6 +521,113 @@ def render_clip(conn: sqlite3.Connection, cfg: Config, clip_id: int) -> Path:
     return out
 
 
+def thumbnail(
+    conn: sqlite3.Connection,
+    cfg: Config,
+    clip_id: int,
+    text: str,
+    at: float | None = None,
+    face: tuple[float, float, float, float] | None = None,
+) -> Path:
+    """Render a 1080x1920 cover (cover.jpg) from a real frame of the clip with big title text.
+
+    `at` is seconds into the clip (default: the middle). The frame is real stream footage and
+    the text must describe what actually happens in the clip, never a moment that isn't there.
+    `face` = (x, y, w, h) as fractions of the source frame: that region (the streamer's facecam)
+    is blown up below the gameplay strip so his reaction leads the thumbnail.
+    """
+    if face is not None and not (
+        all(0 <= v <= 1 for v in face)
+        and face[2] > 0
+        and face[3] > 0
+        and face[0] + face[2] <= 1
+        and face[1] + face[3] <= 1
+    ):
+        raise ValueError("face must be x,y,w,h fractions inside the frame")
+    media.require_libass()
+    clip = _clip(conn, clip_id)
+    src = _source(conn, clip["source_id"])
+    camp = conn.execute("SELECT * FROM campaigns WHERE id = ?", (src["campaign_id"],)).fetchone()
+    length = clip["end_s"] - clip["start_s"]
+    at = length / 2 if at is None else at
+    if not 0 <= at <= length:
+        raise ValueError(f"--at must be within the clip (0-{length:.1f}s)")
+    work = cfg.paths.work_dir / f"clip_{clip_id}"
+    work.mkdir(parents=True, exist_ok=True)
+    w, h = cfg.render.width, cfg.render.height
+    clean = " ".join(re.sub(r"[\U00010000-\U0010FFFF\u2600-\u27BF\uFE0F]", "", text).split())
+    size = int(cfg.render.font_size * 1.7)
+    ass = f"""[Script Info]
+ScriptType: v4.00+
+PlayResX: {w}
+PlayResY: {h}
+WrapStyle: 0
+ScaledBorderAndShadow: yes
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Cover,{cfg.render.font},{size},&H0000E5FF,&H000000FF,&H00000000,&H96000000,-1,0,0,0,100,100,0,0,1,11,5,8,60,60,150,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:00.00,0:00:05.00,Cover,,0,0,0,,{subtitles._ass_escape(clean.upper())}
+"""  # noqa: E501
+    (work / "cover.ass").write_text(ass, encoding="utf-8")
+    # Full-width gameplay strip, never cropped, so the streamer's facecam (usually in a corner)
+    # stays whole; logo kept above the strip as in the clip.
+    strip_w = w
+    strip_h = strip_w * 9 // 16 // 2 * 2
+    # With a facecam blow-up the strip moves up so the face sits in the upper two thirds.
+    strip_top = int(h * 0.29) if face else (h - strip_h) // 2 + 140
+    overlay = camp["overlay_path"]
+    logo = (
+        f"[1:v]scale={int(w * 0.7) // 2 * 2}:-2,format=rgba[ov];"
+        f"[c][ov]overlay=(W-w)/2:{strip_top - 70}-h/2[c2];[c2]"
+        if overlay
+        else "[c]"
+    )
+    if face:
+        fx, fy, fw, fh = face
+        face_w = int(w * 0.62) // 2 * 2
+        split, cam = (
+            "split=3[a][b][f]",
+            f";[f]crop=iw*{fw}:ih*{fh}:iw*{fx}:ih*{fy},scale={face_w}:-2,"
+            "pad=iw+16:ih+16:8:8:color=0xFFE500,eq=saturation=1.2[cam]",
+        )
+        cam_y = strip_top + strip_h - 40
+        tail = f"[bg][fg]overlay=0:{strip_top}[c0];[c0][cam]overlay=(W-w)/2:{cam_y}[c];"
+    else:
+        split, cam = "split[a][b]", ""
+        tail = f"[bg][fg]overlay=0:{strip_top}[c];"
+    vf = (
+        f"[0:v]{split};[a]scale={w}:{h}:force_original_aspect_ratio=increase,"
+        f"crop={w}:{h},boxblur=24:2,eq=brightness=-0.15[bg];"
+        f"[b]scale={strip_w}:{strip_h},crop={w}:{strip_h},eq=saturation=1.25:contrast=1.08[fg]"
+        f"{cam};{tail}{logo}ass=cover.ass,setsar=1[v]"
+    )
+    out = work / "cover.jpg"
+    media.run(
+        [
+            "-ss",
+            f"{clip['start_s'] + at:.3f}",
+            "-i",
+            src["path"],
+            *(["-i", overlay] if overlay else []),
+            "-filter_complex",
+            vf,
+            "-map",
+            "[v]",
+            "-frames:v",
+            "1",
+            "-q:v",
+            "2",
+            out.name,
+        ],
+        cwd=work,
+    )
+    return out
+
+
 def _clip(conn: sqlite3.Connection, clip_id: int) -> sqlite3.Row:
     row: sqlite3.Row | None = conn.execute(
         "SELECT * FROM clips WHERE id = ?", (clip_id,)
@@ -530,6 +671,85 @@ def record_post(
     )
     assert cur.lastrowid is not None
     return cur.lastrowid
+
+
+ZERNIO_PLATFORMS = ("tiktok", "instagram", "youtube")
+
+
+def publish_clip(
+    conn: sqlite3.Connection,
+    cfg: Config,
+    clip_id: int,
+    platforms: list[str],
+    *,
+    live: bool = False,
+    scheduled_for: str | None = None,
+    client: Any = None,
+) -> dict[str, Any]:
+    """Post an approved, rendered clip through Zernio (official platform APIs).
+
+    Dry run by default. Live needs an approved clip and GCE_ALLOW_LIVE_PUBLISH=yes. Each
+    platform gets a clip_posts row (url "zernio:<post id>", submitted=0) so the campaign
+    submission, which stays manual, can be tracked. Campaign clips are real stream footage, so
+    the synthetic-media flag is off.
+    """
+    import os
+
+    from gce import zernio
+
+    clip = _clip(conn, clip_id)
+    camp = conn.execute(
+        "SELECT c.platforms FROM campaigns c JOIN clip_sources s ON s.campaign_id = c.id"
+        " WHERE s.id = ?",
+        (clip["source_id"],),
+    ).fetchone()
+    bad = [p for p in platforms if p not in ZERNIO_PLATFORMS or p not in camp["platforms"].split()]
+    if bad:
+        raise ValueError(f"campaign accepts {camp['platforms']}; cannot publish to {bad}")
+    if not clip["path"] or not Path(clip["path"]).exists():
+        raise FileNotFoundError(f"clip {clip_id} is not rendered; run `gce clip render` first")
+    caption = (Path(clip["path"]).parent / "caption.txt").read_text(encoding="utf-8").strip()
+    if live:
+        if clip["status"] != "approved":
+            raise PermissionError(f"clip {clip_id} is {clip['status']}; approve it first")
+        if os.environ.get("GCE_ALLOW_LIVE_PUBLISH") != "yes":
+            raise PermissionError("set GCE_ALLOW_LIVE_PUBLISH=yes to enable live publishing")
+    accounts = (
+        cfg.zernio.accounts
+        if live
+        else {p: cfg.zernio.accounts.get(p) or "<account id>" for p in platforms}
+    )
+    body = zernio.build_post_body(
+        caption=caption,
+        media_url="<uploaded at publish time>",
+        platforms=platforms,
+        accounts=accounts,
+        timezone=cfg.zernio.timezone,
+        scheduled_for=scheduled_for,
+        tiktok_privacy="PUBLIC_TO_EVERYONE",
+        title=clip["title"] or clip["hook"],
+        tags=re.findall(r"#(\w+)", caption),
+        ai_generated=False,
+    )
+    if not live:
+        return {"mode": "dry_run", "request": body}
+    zc = client or zernio.Client(cfg.zernio)
+    body["mediaItems"][0]["url"] = zc.upload(Path(clip["path"]))
+    resp = zc.create_post(body)
+    post = resp.get("post", resp)
+    post_id = str(post.get("_id", ""))
+    if not post_id:
+        raise zernio.ZernioError(f"Zernio response had no post id: {json.dumps(resp)[:500]}")
+    ids = [record_post(conn, clip_id, p, f"zernio:{post_id}") for p in platforms]
+    return {"mode": "live", "post_id": post_id, "clip_posts": ids}
+
+
+def unsubmitted(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    """Posts not yet submitted on their campaign (Content Rewards wants this within 30 min)."""
+    return conn.execute(
+        "SELECT p.*, k.title FROM clip_posts p JOIN clips k ON k.id = p.clip_id"
+        " WHERE p.submitted = 0 ORDER BY p.created_at"
+    ).fetchall()
 
 
 def set_views(conn: sqlite3.Connection, post_id: int, views: int, submitted: bool | None) -> None:

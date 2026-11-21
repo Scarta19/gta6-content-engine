@@ -11,6 +11,10 @@ dependencies = [
     "typer>=0.12",
 ]
 
+[project.optional-dependencies]
+# Clipping mode: local transcription and VOD download. faster-whisper 1.2 breaks on PyAV 18+.
+clips = ["faster-whisper>=1.1", "av>=12,<18", "yt-dlp>=2024.1"]
+
 [project.scripts]
 gce = "gce.cli:app"
 

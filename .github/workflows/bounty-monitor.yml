@@ -1,0 +1,46 @@
+name: bounty-monitor
+# Hourly scan of public clipping-campaign listings. Read-only: it never registers, applies,
+# submits or posts. New gaming campaigns and budgets >= $10k open a GitHub issue (GitHub
+# emails the repo owner). Scheduled runs only fire from the default branch.
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+permissions:
+  contents: read
+  issues: write
+concurrency:
+  group: bounty-monitor
+  cancel-in-progress: false
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --no-dev
+      - name: Restore monitor state
+        uses: actions/cache/restore@v4
+        with:
+          path: data/gce.sqlite3
+          key: bounty-db-${{ github.run_id }}
+          restore-keys: bounty-db-
+      - name: Scan
+        run: uv run gce --config config.example.toml bounties scan --alerts-file alerts.md
+      - name: Save monitor state
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: data/gce.sqlite3
+          key: bounty-db-${{ github.run_id }}
+      - name: Open alert issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ -s alerts.md ]; then
+            { echo "Automated scan of public campaign listings. Figures are what the listing shows;"
+              echo "min payout, min views, geo and AI rules are only on each campaign's rules page."
+              echo "Nothing was joined or submitted."; echo; echo '```'; cat alerts.md; echo '```'; } > body.md
+            gh issue create --title "Clipping campaigns: $(date -u +'%Y-%m-%d %H:%M') UTC" --body-file body.md
+          fi

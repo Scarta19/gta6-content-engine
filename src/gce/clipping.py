@@ -299,7 +299,8 @@ def find_prompt(
         [
             f"Campaign rules: {rules or 'none given'}",
             f"Required caption text: {required or 'none'}",
-            f"Return the {n} best clips, each {min_s:.0f}-{max_s:.0f} seconds long.",
+            f"Return the {n} best clips, each {min_s:.0f}-{max_s:.0f} seconds long (15-20 s is"
+            " ideal). Start on the setup line, no lead-in, and cut right after the payoff.",
             "Transcript with start times in seconds:",
             *transcript_lines(words),
             "",
@@ -347,8 +348,8 @@ def find_moments(
     llm_cfg: LlmCfg,
     source_id: int,
     n: int = 5,
-    min_s: float = 20.0,
-    max_s: float = 60.0,
+    min_s: float = 12.0,
+    max_s: float = 25.0,
 ) -> list[int]:
     from gce.llm import complete
     from gce.scripting import extract_json

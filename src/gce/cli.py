@@ -620,8 +620,8 @@ def clip_transcribe(
 def clip_find(
     source_id: int,
     n: int = 5,
-    min_s: float = 20.0,
-    max_s: float = 60.0,
+    min_s: float = 12.0,
+    max_s: float = 25.0,
 ) -> None:
     """Let the LLM pick the most viral moments (costs API tokens)."""
     c = cfg()
